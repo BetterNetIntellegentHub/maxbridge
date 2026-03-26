@@ -1,0 +1,79 @@
+- name: Install backup tooling
+  apt:
+    name:
+      - postgresql-client
+      - age
+    state: present
+
+- name: Ensure backup requirements secrets exist
+  stat:
+    path: "{{ maxbridge_secrets_dir }}/{{ item }}"
+  loop:
+    - db_dsn
+    - backup_encryption_key
+  register: maxbridge_backup_secret_stats
+
+- name: Assert backup secret files are present
+  assert:
+    that:
+      - (maxbridge_backup_secret_stats.results | selectattr('item', 'equalto', 'db_dsn') | first).stat.exists
+      - (maxbridge_backup_secret_stats.results | selectattr('item', 'equalto', 'backup_encryption_key') | first).stat.exists
+    fail_msg: "Backup secrets are missing in {{ maxbridge_secrets_dir }}. Ensure app role manages secrets or provide db_dsn and backup_encryption_key."
+
+- name: Ensure backup dirs
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: maxbridge
+    group: maxbridge
+    mode: '0750'
+  loop:
+    - "{{ maxbridge_app_dir }}/backup"
+    - "{{ maxbridge_app_dir }}/backup/archive"
+
+- name: Copy backup scripts
+  copy:
+    src: "{{ playbook_dir }}/../../scripts/"
+    dest: "{{ maxbridge_app_dir }}/scripts/"
+    owner: maxbridge
+    group: maxbridge
+    mode: '0750'
+
+- name: Install backup service unit
+  copy:
+    dest: /etc/systemd/system/maxbridge-backup.service
+    mode: '0644'
+    content: |
+      [Unit]
+      Description=MaxBridge PostgreSQL backup
+      After=docker.service
+
+      [Service]
+      Type=oneshot
+      User=maxbridge
+      Group=maxbridge
+      Environment=DB_DSN_FILE={{ maxbridge_secrets_dir }}/db_dsn
+      Environment=BACKUP_ENCRYPTION_KEY_FILE={{ maxbridge_secrets_dir }}/backup_encryption_key
+      ExecStart={{ maxbridge_app_dir }}/scripts/backup-db.sh
+
+- name: Install backup timer unit
+  copy:
+    dest: /etc/systemd/system/maxbridge-backup.timer
+    mode: '0644'
+    content: |
+      [Unit]
+      Description=Run MaxBridge backup daily
+
+      [Timer]
+      OnCalendar={{ maxbridge_backup_schedule }}
+      Persistent=true
+
+      [Install]
+      WantedBy=timers.target
+
+- name: Enable backup timer
+  systemd:
+    name: maxbridge-backup.timer
+    enabled: true
+    state: started
+    daemon_reload: true

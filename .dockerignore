@@ -1,0 +1,39 @@
+# VCS and editor metadata
+.git
+.github
+.idea
+.vscode
+*.swp
+Thumbs.db
+
+# Local build/runtime artifacts
+bin/
+dist/
+tmp/
+logs/
+*.exe
+*.out
+*.log
+coverage.out
+
+# Local env files
+.env
+.env.local
+.env.*
+!.env.example
+!deploy/compose/.env.example
+
+# Secrets and private keys (never send to build context)
+.secrets/
+**/.secrets/
+deploy/compose/secrets/*
+!deploy/compose/secrets/README.md
+deploy/ansible/group_vars/vault.yml
+*vault_pass*
+*.pem
+*.key
+*.crt
+*.p12
+*.kdbx
+**/id_rsa
+**/id_ed25519

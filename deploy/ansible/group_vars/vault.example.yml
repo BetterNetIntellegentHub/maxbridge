@@ -1,0 +1,14 @@
+# Copy to group_vars/all/vault.yml and encrypt:
+# ansible-vault encrypt deploy/ansible/group_vars/all/vault.yml
+
+maxbridge_telegram_bot_token: "<telegram_bot_token>"
+maxbridge_max_bot_token: "<max_bot_token>"
+maxbridge_registry_token: "<docker_hub_access_token>"
+
+# Optional explicit overrides (if omitted, generated/derived by role app)
+# maxbridge_postgres_password: ""
+# maxbridge_invite_hash_pepper: ""
+# maxbridge_telegram_webhook_secret: ""
+# maxbridge_max_webhook_secret: ""
+# maxbridge_backup_encryption_key: ""
+# maxbridge_db_dsn: ""

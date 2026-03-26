@@ -1,0 +1,26 @@
+﻿- name: Check docker + compose availability
+  command: docker compose version
+  register: maxbridge_docker_compose_check
+  changed_when: false
+  failed_when: false
+
+- name: Install docker dependencies
+  apt:
+    name:
+      - docker.io
+      - docker-compose-v2
+    state: present
+    update_cache: true
+  when: maxbridge_docker_compose_check.rc != 0
+
+- name: Enable docker service
+  service:
+    name: docker
+    enabled: true
+    state: started
+
+- name: Add deploy user to docker group
+  user:
+    name: "{{ ansible_user }}"
+    groups: docker
+    append: true

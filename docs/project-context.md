@@ -1,0 +1,236 @@
+﻿# Project Context: MaxBridge
+
+Updated: 2026-03-26
+Path: `docs/project-context.md`
+
+## 1. Цель проекта
+
+`MaxBridge` — production-oriented мост `Telegram -> MAX` с управлением через fullscreen TUI (без web-admin).
+
+Ключевые требования:
+1. Надежная доставка (at-least-once, retry/backoff, DLQ, recovery).
+2. Invite-based onboarding для MAX пользователей.
+3. Не отвечать и не сохранять мусор от неавторизованных MAX пользователей.
+4. Контроль роста БД через retention/cleanup.
+5. Простое single-server развёртывание: Docker Compose + Ansible (GitOps-lite).
+
+## 2. Текущая архитектура
+
+### 2.1 Процессы
+1. `cmd/bridge`:
+   - HTTP ingress (Telegram/MAX webhooks)
+   - health/metrics endpoints
+   - housekeeping (retention + partition maintenance)
+2. `cmd/worker`:
+   - обработка delivery queue
+   - rate limit + circuit breaker
+   - retry/DLQ + lease recovery
+3. `cmd/tui`:
+   - fullscreen Bubble Tea UI
+   - меню + командный режим для операторских операций
+
+### 2.2 Внутренние модули
+1. `internal/httpapi` — webhook handlers и health API.
+2. `internal/storage` — PostgreSQL store + queue/migration logic.
+3. `internal/delivery` — worker engine.
+4. `internal/invites` — invite code generation/hash/parsing.
+5. `internal/telegram` — Telegram API client + group probe + deeplink helper.
+6. `internal/max` — MAX API client (send/ping).
+7. `internal/tui` — UI model + admin service.
+8. `internal/ops` — retention/partitions scheduler.
+9. `internal/app` — config/logger/metrics.
+10. `internal/domain` — доменные типы/правила.
+
+## 3. Основные потоки
+
+### 3.1 Telegram ingress -> queue
+1. `POST /webhooks/telegram`.
+2. Проверка `X-Telegram-Bot-Api-Secret-Token`.
+3. Валидация тела и ограничение размера.
+4. Быстрое durable enqueue в `delivery_jobs` (через route + dedupe).
+5. Быстрый ответ webhook.
+
+### 3.2 MAX link onboarding
+1. `POST /webhooks/max`.
+2. Проверка `X-Max-Bot-Api-Secret`.
+3. Обработка только `/link <invite_code>`.
+4. Invalid/unknown link:
+   - no reply
+   - no DB writes
+   - только counter `invalid_link_ignored_total`.
+5. Valid link:
+   - consume invite (hash-based)
+   - upsert linked user
+   - optional auto-route binding by scope
+   - immediate test send в MAX
+   - update user delivery status
+
+### 3.3 Worker delivery lifecycle
+1. Claim jobs (`pending|retry`) с lease (`FOR UPDATE SKIP LOCKED`).
+2. Отправка в MAX с bounded concurrency.
+3. Успех -> `completed` + attempt record.
+4. Temporary error -> backoff + `retry`.
+5. Permanent/exhausted -> `dead_letter`.
+6. Stale `processing` after lease timeout -> requeue.
+
+## 4. API и endpoints
+
+### 4.1 HTTP
+1. `POST /webhooks/telegram`
+2. `POST /webhooks/max`
+3. `GET /health/live`
+4. `GET /health/ready`
+5. `GET /health/checks`
+6. `GET /metrics`
+
+### 4.2 CLI
+1. `bridge serve`
+2. `bridge migrate up|down`
+3. `bridge health`
+4. `worker run`
+5. `tui` (fullscreen)
+
+## 5. TUI sections и команды
+
+### 5.1 Секции
+1. Dashboard
+2. Telegram Groups
+3. MAX Users
+4. Invites
+5. Routes
+6. Delivery Queue
+7. Health Checks
+8. Logs
+9. Settings
+10. Exit
+
+### 5.2 Командный режим (`:`)
+1. `group add <chat_id> <title>`
+2. `group probe <chat_id>`
+3. `group probeall now`
+4. `group remove <chat_id>`
+5. `group deeplink <bot_username> <payload>`
+6. `invite create <group|route|entity> <scope_id> <ttl>`
+7. `invite revoke <invite_id>`
+8. `route add <chat_id> <max_user_id> <all|text_only|mentions_only> <ignore_bots:true|false>`
+9. `route pause <route_id>`
+10. `route resume <route_id>`
+11. `route delete <route_id>`
+12. `user block <max_user_id>`
+13. `user unblock <max_user_id>`
+14. `user remove <max_user_id>`
+15. `user test <max_user_id>`
+16. `queue retry <job_id>`
+17. `queue clear-completed <days>`
+
+## 6. Схема данных (PostgreSQL)
+
+Основные таблицы:
+1. `telegram_groups`
+2. `max_users`
+3. `invites` (hash only, без raw code)
+4. `routes`
+5. `dedupe_records` (unique `dedupe_key`)
+6. `delivery_jobs`
+7. `delivery_attempts` (partitioned by month)
+8. `app_events`
+
+Важные ограничения:
+1. `routes` unique `(telegram_chat_id, max_user_id)`.
+2. `invites.code_hash` unique.
+3. `dedupe_records.dedupe_key` unique.
+4. `delivery_jobs.status` enum-like check.
+
+## 7. Retention / cleanup
+
+Реализовано в housekeeping:
+1. Wipe payload у `completed` jobs старше `RETENTION_PAYLOAD_HOURS`.
+2. Удаление `delivery_attempts` старше `RETENTION_JOBS_DAYS`.
+3. Удаление `completed|dead_letter` jobs старше `RETENTION_JOBS_DAYS`.
+4. Очистка `dedupe_records` по `expires_at`/TTL.
+5. `ensure_delivery_attempt_partitions()` для обслуживания партиций.
+
+## 8. Метрики
+
+Экспортируются через Prometheus:
+1. `telegram_updates_total`
+2. `telegram_events_enqueued_total`
+3. `max_send_success_total`
+4. `max_send_failure_total`
+5. `retry_total`
+6. `dead_letter_total`
+7. `queue_depth`
+8. `oldest_pending_job_age`
+9. `max_api_latency`
+10. `db_errors_total`
+11. `invalid_webhook_total`
+12. `invalid_link_ignored_total`
+13. `successful_links_total`
+
+## 9. Безопасность
+
+1. Секреты через files (`*_FILE`), не через CLI args.
+2. Логгер редактирует `token/secret/password/invite` поля.
+3. Nginx публикует только HTTPS, webhook endpoints POST-only.
+4. Проверяются secret headers Telegram/MAX.
+5. `client_max_body_size` + `limit_req` настроены в Nginx.
+6. БД не публикуется наружу.
+
+## 10. Deploy / GitOps-lite
+
+### 10.1 Локально
+1. Подготовить `deploy/compose/secrets/*`.
+2. `docker compose -f deploy/compose/docker-compose.yml up -d`
+3. `docker compose -f deploy/compose/docker-compose.yml run --rm bridge /app/bridge migrate up`
+4. `docker compose -f deploy/compose/docker-compose.yml run --rm bridge /app/tui`
+
+### 10.2 Прод
+1. `ansible-playbook -i deploy/ansible/inventory/hosts.yml deploy/ansible/bootstrap.yml`
+2. `ansible-playbook -i deploy/ansible/inventory/hosts.yml deploy/ansible/deploy.yml -e "maxbridge_version=<tag>" -e "maxbridge_domain=<domain>"`
+3. При `maxbridge_manage_secrets=true` Ansible сам управляет секретами на target host; внешние токены (`maxbridge_telegram_bot_token`, `maxbridge_max_bot_token`) задаются через Vault vars.
+4. Compose `.env` формируется Ansible (`BRIDGE_IMAGE`, `NGINX_HTTPS_PORT`), что позволяет переопределять host HTTPS port (например `8443`, если `443` занят).
+5. Для private registry задаются `maxbridge_registry_private=true`, `maxbridge_registry_username`, `maxbridge_registry_url`, а секрет `maxbridge_registry_token` хранится в Vault; перед pull Ansible делает `docker login` и валидирует наличие creds в private-режиме.
+
+### 10.3 Rollback
+1. Повторный deploy с предыдущим immutable tag.
+
+## 11. Backup/restore
+
+Скрипты:
+1. `scripts/backup-db.sh`
+2. `scripts/restore-db.sh <backup.enc>`
+3. `scripts/verify-backup.sh <backup.enc>`
+
+Политика:
+1. `pg_dump -Fc` + шифрование backup.
+2. Ежедневный запуск через `maxbridge-backup.timer`.
+3. Retention backup через cleanup.
+
+## 12. Документы-источники в репо
+
+1. `agents.md` (правила действий агента)
+2. `README.md`
+3. `docs/adr/0001-architecture.md`
+4. `docs/refs.md`
+5. `docs/NOTES.md`
+6. `docs/operations.md`
+7. `docs/security.md`
+8. `docs/migration.md`
+9. `docs/backup-restore.md`
+10. `docs/assumptions.md`
+
+## 13. Известные ограничения/незавершённость
+
+1. Полноценные integration/e2e тесты пока placeholders (`tests/integration`, `tests/e2e`).
+2. Полная runtime валидация с `docker compose` и реальными webhooks в этой среде не выполнена (нет docker runtime); compile-валидация Go команд и модулей выполнялась.
+3. MAX webhook payload schema может требовать дополнительной адаптации под конкретные event variants.
+4. TUI реализован как fullscreen + command mode; wizard UX можно расширить отдельными формами.
+
+## 14. Правило работы с контекстом
+
+1. При изменениях архитектуры/схемы/операционных процедур сначала обновлять этот файл.
+2. При новых задачах использовать этот файл как baseline и сверять с конкретными исходниками.
+3. Если возникает противоречие между этим файлом и кодом, приоритет у кода + обновление файла в том же change set.
+
+
+

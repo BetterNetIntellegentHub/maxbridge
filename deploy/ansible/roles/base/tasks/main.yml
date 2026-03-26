@@ -1,0 +1,53 @@
+﻿- name: Install baseline packages
+  apt:
+    name:
+      - curl
+      - ca-certificates
+      - gnupg
+      - ufw
+      - jq
+    state: present
+    update_cache: true
+
+- name: Ensure service user exists
+  user:
+    name: maxbridge
+    shell: /usr/sbin/nologin
+    system: true
+    create_home: false
+
+- name: Configure UFW defaults
+  ufw:
+    state: enabled
+    policy: deny
+
+- name: Allow SSH
+  ufw:
+    rule: allow
+    port: "22"
+    proto: tcp
+
+- name: Allow HTTPS
+  ufw:
+    rule: allow
+    port: "443"
+    proto: tcp
+
+- name: Disable ssh root login
+  lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: '^PermitRootLogin'
+    line: 'PermitRootLogin no'
+  notify: restart ssh
+
+- name: Disable password auth
+  lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: '^PasswordAuthentication'
+    line: 'PasswordAuthentication no'
+  notify: restart ssh
+
+- name: Enable unattended upgrades
+  apt:
+    name: unattended-upgrades
+    state: present

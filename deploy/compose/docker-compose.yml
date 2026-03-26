@@ -1,0 +1,128 @@
+version: "3.9"
+
+services:
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    depends_on:
+      - bridge
+    ports:
+      - "${NGINX_HTTPS_PORT:-443}:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/certs:/etc/nginx/certs:ro
+    networks:
+      - edge
+      - app
+
+  bridge:
+    image: ${BRIDGE_IMAGE:-maxbridge:local}
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    command: ["/app/bridge", "serve"]
+    restart: unless-stopped
+    environment:
+      APP_ENV: prod
+      LOG_LEVEL: info
+      HTTP_ADDR: ":8080"
+      METRICS_ADDR: ":9090"
+      DB_DSN_FILE: /run/secrets/db_dsn
+      INVITE_HASH_PEPPER_FILE: /run/secrets/invite_hash_pepper
+      TELEGRAM_BOT_TOKEN_FILE: /run/secrets/telegram_bot_token
+      TELEGRAM_WEBHOOK_SECRET_FILE: /run/secrets/telegram_webhook_secret
+      MAX_BOT_TOKEN_FILE: /run/secrets/max_bot_token
+      MAX_WEBHOOK_SECRET_FILE: /run/secrets/max_webhook_secret
+      MAX_API_BASE_URL: https://botapi.max.ru
+      WORKER_MAX_RETRY: "8"
+      WORKER_LEASE_SECONDS: "60"
+      RETENTION_JOBS_DAYS: "30"
+      RETENTION_DEDUPE_DAYS: "14"
+      RETENTION_PAYLOAD_HOURS: "24"
+    secrets:
+      - db_dsn
+      - invite_hash_pepper
+      - telegram_bot_token
+      - telegram_webhook_secret
+      - max_bot_token
+      - max_webhook_secret
+    healthcheck:
+      test: ["CMD", "/app/bridge", "health"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+    networks:
+      - app
+
+  worker:
+    image: ${BRIDGE_IMAGE:-maxbridge:local}
+    command: ["/app/worker", "run"]
+    restart: unless-stopped
+    depends_on:
+      - postgres
+    environment:
+      APP_ENV: prod
+      LOG_LEVEL: info
+      METRICS_ADDR: ":9090"
+      DB_DSN_FILE: /run/secrets/db_dsn
+      INVITE_HASH_PEPPER_FILE: /run/secrets/invite_hash_pepper
+      TELEGRAM_BOT_TOKEN_FILE: /run/secrets/telegram_bot_token
+      TELEGRAM_WEBHOOK_SECRET_FILE: /run/secrets/telegram_webhook_secret
+      MAX_BOT_TOKEN_FILE: /run/secrets/max_bot_token
+      MAX_WEBHOOK_SECRET_FILE: /run/secrets/max_webhook_secret
+      MAX_API_BASE_URL: https://botapi.max.ru
+      WORKER_CONCURRENCY: "8"
+      WORKER_RATE_LIMIT_RPS: "20"
+      WORKER_MAX_RETRY: "8"
+      WORKER_LEASE_SECONDS: "60"
+    secrets:
+      - db_dsn
+      - invite_hash_pepper
+      - telegram_bot_token
+      - telegram_webhook_secret
+      - max_bot_token
+      - max_webhook_secret
+    networks:
+      - app
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: maxbridge
+      POSTGRES_USER: maxbridge
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    secrets:
+      - postgres_password
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U maxbridge -d maxbridge"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - app
+
+networks:
+  edge:
+  app:
+
+volumes:
+  pgdata:
+
+secrets:
+  db_dsn:
+    file: ./secrets/db_dsn
+  invite_hash_pepper:
+    file: ./secrets/invite_hash_pepper
+  telegram_bot_token:
+    file: ./secrets/telegram_bot_token
+  telegram_webhook_secret:
+    file: ./secrets/telegram_webhook_secret
+  max_bot_token:
+    file: ./secrets/max_bot_token
+  max_webhook_secret:
+    file: ./secrets/max_webhook_secret
+  postgres_password:
+    file: ./secrets/postgres_password

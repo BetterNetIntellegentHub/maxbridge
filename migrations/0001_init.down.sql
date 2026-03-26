@@ -1,0 +1,9 @@
+DROP TABLE IF EXISTS app_events;
+DROP TABLE IF EXISTS delivery_attempts_default;
+DROP TABLE IF EXISTS delivery_attempts;
+DROP TABLE IF EXISTS delivery_jobs;
+DROP TABLE IF EXISTS dedupe_records;
+DROP TABLE IF EXISTS routes;
+DROP TABLE IF EXISTS invites;
+DROP TABLE IF EXISTS max_users;
+DROP TABLE IF EXISTS telegram_groups;

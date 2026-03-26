@@ -1,0 +1,24 @@
+# binaries
+bin/
+dist/
+*.exe
+*.out
+
+# local runtime
+.env
+.env.local
+.secrets/
+tmp/
+logs/
+
+# compose/ansible secrets (keep only template docs)
+deploy/compose/secrets/*
+!deploy/compose/secrets/README.md
+deploy/ansible/group_vars/all/vault.yml
+deploy/ansible/inventory/hosts.yml
+
+# editor / os
+.idea/
+.vscode/
+*.swp
+Thumbs.db
