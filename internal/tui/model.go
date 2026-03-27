@@ -18,10 +18,13 @@ const (
 	modeConfirm
 )
 
+const backActionID = "__back"
+
 type rowKind int
 
 const (
-	rowRecord rowKind = iota
+	rowBack rowKind = iota
+	rowRecord
 	rowSectionActions
 )
 
@@ -74,10 +77,9 @@ type Model struct {
 	actionIndex    int
 	form           actionForm
 	pending        *pendingAction
+	confirmIndex   int
 
-	status        string
-	preview       SectionData
-	previewLoaded bool
+	status string
 }
 
 type sectionLoadedMsg struct {
@@ -111,10 +113,7 @@ func NewModel(service *AdminService) Model {
 }
 
 func (m Model) Init() tea.Cmd {
-	if len(m.sections) == 0 {
-		return nil
-	}
-	return m.loadSectionCmd(m.sections[m.index])
+	return nil
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -140,10 +139,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if v.err != nil {
 			m.status = fmt.Sprintf("error: %v", v.err)
 			return m, nil
-		}
-		if m.mode == modeSections && v.section == m.sections[m.index] {
-			m.preview = v.data
-			m.previewLoaded = true
 		}
 		if v.section == m.currentSection {
 			m.sectionContent = v.data.Content
@@ -188,8 +183,6 @@ func (m Model) updateSections(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.index = len(m.sections) - 1
 		}
 		return m, nil
-	case "r":
-		return m, m.loadSectionCmd(m.sections[m.index])
 	case "enter":
 		selected := m.sections[m.index]
 		if selected == "Exit" {
@@ -202,6 +195,7 @@ func (m Model) updateSections(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.actions = nil
 		m.actionIndex = 0
 		m.pending = nil
+		m.confirmIndex = 0
 		m.status = ""
 		m.mode = modeRows
 		return m, m.loadSectionCmd(selected)
@@ -231,11 +225,12 @@ func (m Model) updateRows(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.status = "no items in this section"
 			return m, nil
 		}
-		m.actions = m.buildActions(m.currentSection, m.rows[m.rowIndex])
-		if len(m.actions) == 0 {
-			m.status = "no actions available"
+		selected := m.rows[m.rowIndex]
+		if selected.kind == rowBack {
+			m.mode = modeSections
 			return m, nil
 		}
+		m.actions = withBackAction(m.buildActions(m.currentSection, selected))
 		m.actionIndex = 0
 		m.mode = modeActions
 		return m, nil
@@ -265,18 +260,25 @@ func (m Model) updateActions(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		act := m.actions[m.actionIndex]
+		if act.id == backActionID {
+			m.mode = modeRows
+			m.actions = nil
+			m.actionIndex = 0
+			return m, nil
+		}
 		entry := m.rows[m.rowIndex]
 		if len(act.fields) > 0 {
 			values := make([]string, len(act.fields))
 			for i, f := range act.fields {
 				values[i] = f.defaultVal
 			}
-			m.form = actionForm{action: act, entry: entry, fields: act.fields, values: values}
+			m.form = actionForm{action: act, entry: entry, fields: act.fields, values: values, index: 1}
 			m.mode = modeForm
 			return m, nil
 		}
 		if act.dangerous {
 			m.pending = &pendingAction{action: act, entry: entry, values: map[string]string{}}
+			m.confirmIndex = 0
 			m.mode = modeConfirm
 			return m, nil
 		}
@@ -289,8 +291,9 @@ func (m Model) updateActions(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) updateForm(key tea.KeyMsg) (tea.Model, tea.Cmd) {
+	total := len(m.form.fields) + 1
 	switch key.String() {
-	case "esc":
+	case "esc", "left", "h":
 		m.form = actionForm{}
 		m.mode = modeActions
 		return m, nil
@@ -300,15 +303,21 @@ func (m Model) updateForm(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "down", "j", "tab":
-		if m.form.index < len(m.form.fields)-1 {
+		if m.form.index < total-1 {
 			m.form.index++
 		}
 		return m, nil
 	case "enter":
-		if m.form.index < len(m.form.fields)-1 {
+		if m.form.index == 0 {
+			m.form = actionForm{}
+			m.mode = modeActions
+			return m, nil
+		}
+		if m.form.index < total-1 {
 			m.form.index++
 			return m, nil
 		}
+
 		values := map[string]string{}
 		for i, f := range m.form.fields {
 			values[f.key] = strings.TrimSpace(m.form.values[i])
@@ -318,6 +327,7 @@ func (m Model) updateForm(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.form = actionForm{}
 		if act.dangerous {
 			m.pending = &pendingAction{action: act, entry: entry, values: values}
+			m.confirmIndex = 0
 			m.mode = modeConfirm
 			return m, nil
 		}
@@ -326,22 +336,19 @@ func (m Model) updateForm(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.actionIndex = 0
 		return m, m.execActionCmd(act, entry, values)
 	case "backspace":
-		if len(m.form.values) == 0 {
+		fieldIdx := m.form.index - 1
+		if fieldIdx < 0 || fieldIdx >= len(m.form.values) {
 			return m, nil
 		}
-		idx := m.form.index
-		if idx < 0 || idx >= len(m.form.values) {
-			return m, nil
-		}
-		if len(m.form.values[idx]) > 0 {
-			m.form.values[idx] = m.form.values[idx][:len(m.form.values[idx])-1]
+		if len(m.form.values[fieldIdx]) > 0 {
+			m.form.values[fieldIdx] = m.form.values[fieldIdx][:len(m.form.values[fieldIdx])-1]
 		}
 		return m, nil
 	default:
 		if key.Type == tea.KeyRunes {
-			idx := m.form.index
-			if idx >= 0 && idx < len(m.form.values) {
-				m.form.values[idx] += key.String()
+			fieldIdx := m.form.index - 1
+			if fieldIdx >= 0 && fieldIdx < len(m.form.values) {
+				m.form.values[fieldIdx] += key.String()
 			}
 		}
 		return m, nil
@@ -350,11 +357,30 @@ func (m Model) updateForm(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m Model) updateConfirm(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch key.String() {
-	case "esc", "n":
+	case "esc", "left", "h", "n":
 		m.pending = nil
 		m.mode = modeActions
+		m.confirmIndex = 0
 		return m, nil
-	case "y", "enter":
+	case "up", "k":
+		if m.confirmIndex > 0 {
+			m.confirmIndex--
+		}
+		return m, nil
+	case "down", "j", "tab":
+		if m.confirmIndex < 1 {
+			m.confirmIndex++
+		}
+		return m, nil
+	case "y":
+		m.confirmIndex = 1
+		fallthrough
+	case "enter":
+		if m.confirmIndex == 0 {
+			m.pending = nil
+			m.mode = modeActions
+			return m, nil
+		}
 		if m.pending == nil {
 			m.mode = modeActions
 			return m, nil
@@ -364,103 +390,112 @@ func (m Model) updateConfirm(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.mode = modeRows
 		m.actions = nil
 		m.actionIndex = 0
+		m.confirmIndex = 0
 		return m, m.execActionCmd(p.action, p.entry, p.values)
 	}
 	return m, nil
 }
 
 func (m Model) View() string {
-	menu := &strings.Builder{}
-	fmt.Fprintln(menu, "MAXBridge Operator TUI")
-	fmt.Fprintln(menu, "====================")
-	for i, s := range m.sections {
-		prefix := "  "
-		if i == m.index {
-			prefix = "> "
-		}
-		fmt.Fprintf(menu, "%s%s\n", prefix, s)
-	}
+	out := &strings.Builder{}
+	fmt.Fprintln(out, "MAXBridge Operator TUI")
+	fmt.Fprintln(out, "====================")
+	fmt.Fprintln(out, "")
 
-	right := &strings.Builder{}
 	switch m.mode {
 	case modeSections:
-		fmt.Fprintf(right, "[Sections] selected: %s\n\n", m.sections[m.index])
-		if m.previewLoaded && len(m.preview.Rows) > 0 {
-			fmt.Fprintln(right, renderRows(m.preview.Rows))
-		} else if m.previewLoaded {
-			fmt.Fprintln(right, m.preview.Content)
+		fmt.Fprintln(out, "Main Menu")
+		fmt.Fprintln(out, "---------")
+		for i, s := range m.sections {
+			printMenuLine(out, i == m.index, i+1, s, "")
 		}
-		fmt.Fprintln(right, "")
-		fmt.Fprintln(right, "Keys: arrows/tab navigate | enter open section | r preview | q quit")
+		fmt.Fprintln(out, "")
+		fmt.Fprintln(out, "Enter: open  |  q: quit")
 	case modeRows:
-		fmt.Fprintf(right, "[%s]\n\n", m.currentSection)
+		fmt.Fprintf(out, "%s Menu\n", m.currentSection)
+		fmt.Fprintln(out, strings.Repeat("-", len(m.currentSection)+5))
 		if len(m.rows) == 0 {
 			if strings.TrimSpace(m.sectionContent) == "" {
-				fmt.Fprintln(right, "<empty>")
+				fmt.Fprintln(out, "<empty>")
 			} else {
-				fmt.Fprintln(right, m.sectionContent)
+				fmt.Fprintln(out, m.sectionContent)
 			}
 		} else {
 			for i, row := range m.rows {
-				prefix := "  "
-				if i == m.rowIndex {
-					prefix = "> "
-				}
-				fmt.Fprintf(right, "%s%s\n", prefix, row.title)
-				if row.detail != "" {
-					fmt.Fprintf(right, "    %s\n", row.detail)
-				}
+				printMenuLine(out, i == m.rowIndex, i+1, row.title, row.detail)
 			}
 		}
-		fmt.Fprintln(right, "")
-		fmt.Fprintln(right, "Keys: arrows navigate | enter actions | esc back | r refresh | q quit")
+		fmt.Fprintln(out, "")
+		fmt.Fprintln(out, "Enter: open/select  |  r: refresh  |  Esc: back")
 	case modeActions:
 		entry := m.rows[m.rowIndex]
-		fmt.Fprintf(right, "[Actions] %s\n\n", entry.title)
+		fmt.Fprintf(out, "%s Actions\n", m.currentSection)
+		fmt.Fprintln(out, strings.Repeat("-", len(m.currentSection)+8))
+		fmt.Fprintf(out, "Target: %s\n\n", entry.title)
 		for i, act := range m.actions {
-			prefix := "  "
-			if i == m.actionIndex {
-				prefix = "> "
-			}
-			danger := ""
+			detail := ""
 			if act.dangerous {
-				danger = " [guarded]"
+				detail = "guarded"
 			}
-			fmt.Fprintf(right, "%s%s%s\n", prefix, act.label, danger)
+			printMenuLine(out, i == m.actionIndex, i+1, act.label, detail)
 		}
-		fmt.Fprintln(right, "")
-		fmt.Fprintln(right, "Keys: arrows navigate | enter select | esc back | q quit")
+		fmt.Fprintln(out, "")
+		fmt.Fprintln(out, "Enter: choose  |  Esc: back")
 	case modeForm:
-		fmt.Fprintf(right, "[Input] %s\n\n", m.form.action.label)
+		fmt.Fprintf(out, "%s Input\n", m.currentSection)
+		fmt.Fprintln(out, strings.Repeat("-", len(m.currentSection)+6))
+		fmt.Fprintf(out, "Action: %s\n\n", m.form.action.label)
+		printMenuLine(out, m.form.index == 0, 1, "Back", "return to action menu")
 		for i, f := range m.form.fields {
-			prefix := "  "
-			if i == m.form.index {
-				prefix = "> "
+			v := m.form.values[i]
+			if v == "" {
+				v = f.placeholder
 			}
-			value := ""
-			if i < len(m.form.values) {
-				value = m.form.values[i]
-			}
-			if value == "" {
-				value = f.placeholder
-			}
-			fmt.Fprintf(right, "%s%s: %s\n", prefix, f.label, value)
+			label := fmt.Sprintf("%s: %s", f.label, v)
+			printMenuLine(out, m.form.index == i+1, i+2, label, "")
 		}
-		fmt.Fprintln(right, "")
-		fmt.Fprintln(right, "Keys: type input | enter next/submit | tab move | esc cancel")
+		fmt.Fprintln(out, "")
+		fmt.Fprintln(out, "Enter on last field submits  |  Enter on Back returns")
 	case modeConfirm:
+		fmt.Fprintln(out, "Confirm Operation")
+		fmt.Fprintln(out, "-----------------")
 		if m.pending != nil {
-			fmt.Fprintf(right, "[Confirm] %s\n\n", m.pending.action.label)
-			fmt.Fprintln(right, "This operation is potentially destructive.")
-			fmt.Fprintln(right, "Press y or enter to confirm, n or esc to cancel.")
+			fmt.Fprintf(out, "Action: %s\n", m.pending.action.label)
+			fmt.Fprintf(out, "Target: %s\n\n", m.pending.entry.title)
 		}
+		printMenuLine(out, m.confirmIndex == 0, 1, "Back", "cancel")
+		printMenuLine(out, m.confirmIndex == 1, 2, "Confirm", "execute now")
+		fmt.Fprintln(out, "")
+		fmt.Fprintln(out, "Enter: choose  |  y: confirm")
 	}
 
 	if m.status != "" {
-		fmt.Fprintf(right, "\nStatus: %s\n", m.status)
+		fmt.Fprintf(out, "\nStatus: %s\n", m.status)
 	}
 
-	return menu.String() + "\n" + right.String()
+	return out.String()
+}
+
+func printMenuLine(b *strings.Builder, selected bool, number int, title, detail string) {
+	prefix := "  "
+	if selected {
+		prefix = "> "
+	}
+	fmt.Fprintf(b, "%s%2d. %s\n", prefix, number, title)
+	if detail != "" {
+		fmt.Fprintf(b, "     %s\n", detail)
+	}
+}
+
+func withBackAction(actions []menuAction) []menuAction {
+	back := menuAction{id: backActionID, label: "Back"}
+	if len(actions) == 0 {
+		return []menuAction{back}
+	}
+	out := make([]menuAction, 0, len(actions)+1)
+	out = append(out, back)
+	out = append(out, actions...)
+	return out
 }
 
 func (m Model) loadSectionCmd(section string) tea.Cmd {
@@ -474,9 +509,10 @@ func (m Model) loadSectionCmd(section string) tea.Cmd {
 }
 
 func (m Model) buildEntries(section string, rows []map[string]any) []listEntry {
-	entries := make([]listEntry, 0, len(rows)+1)
+	entries := make([]listEntry, 0, len(rows)+2)
+	entries = append(entries, listEntry{kind: rowBack, title: "Back", detail: "return to main menu"})
 	if hasSectionActions(section) {
-		entries = append(entries, listEntry{kind: rowSectionActions, title: "Section actions", detail: "Open section-level operations"})
+		entries = append(entries, listEntry{kind: rowSectionActions, title: "Section actions", detail: "open operations for this section"})
 	}
 	for _, row := range rows {
 		entries = append(entries, listEntry{
