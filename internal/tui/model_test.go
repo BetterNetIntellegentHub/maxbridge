@@ -164,14 +164,11 @@ func TestSectionActionOpensFormDirectlyFromRows(t *testing.T) {
 	}
 
 	next, cmd := applyKey(m, tea.KeyMsg{Type: tea.KeyEnter})
-	if cmd != nil {
-		t.Fatalf("expected no async command when opening section action form")
+	if cmd == nil {
+		t.Fatalf("expected async command when running one-click section action")
 	}
-	if next.mode != modeForm {
-		t.Fatalf("expected modeForm, got %v", next.mode)
-	}
-	if next.form.action.id != "invite_create" {
-		t.Fatalf("expected invite_create action, got %q", next.form.action.id)
+	if next.mode != modeRows {
+		t.Fatalf("expected modeRows, got %v", next.mode)
 	}
 }
 
@@ -234,5 +231,23 @@ func TestRouteAddHasNoIgnoreBotsInput(t *testing.T) {
 		if f.key == "ignore_bots" {
 			t.Fatalf("ignore_bots should not be shown in route form")
 		}
+	}
+}
+
+func TestRouteAddStartsPickerMode(t *testing.T) {
+	m := NewModel(nil)
+	m.mode = modeRows
+	m.currentSection = "Routes"
+	m.rows = []listEntry{
+		{kind: rowSectionAction, title: "Добавить маршрут", action: menuAction{id: "route_add", label: "Добавить маршрут"}},
+		{kind: rowBack, title: "Назад"},
+	}
+
+	next, cmd := applyKey(m, tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatalf("expected options loading command")
+	}
+	if next.mode != modeRouteAddPicker {
+		t.Fatalf("expected modeRouteAddPicker, got %v", next.mode)
 	}
 }

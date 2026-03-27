@@ -47,8 +47,9 @@ Path: `docs/project-context.md`
 1. `POST /webhooks/telegram`.
 2. Проверка `X-Telegram-Bot-Api-Secret-Token`.
 3. Валидация тела и ограничение размера.
-4. Быстрое durable enqueue в `delivery_jobs` (через route + dedupe).
-5. Быстрый ответ webhook.
+4. Авто-регистрация Telegram групп в `telegram_groups` при update событиях (`message`, `edited_message`, `channel_post`, `my_chat_member`, `chat_member`) для `group/supergroup`.
+5. Быстрое durable enqueue в `delivery_jobs` (через route + dedupe).
+6. Быстрый ответ webhook.
 
 ### 3.2 MAX link onboarding
 1. `POST /webhooks/max`.
@@ -113,13 +114,15 @@ Path: `docs/project-context.md`
    - действия уровня раздела (например, add/create/cleanup), которые показываются сразу в списке раздела без промежуточного пункта `Section Actions`.
 5. Операции, требующие параметров, выполняются через встроенные формы ввода в TUI (без `:` режима).
    - В формах действия выполняются через явный пункт `Сохранить`; пункт `Назад` расположен ниже.
+   - Для `Добавить маршрут` ручной ввод ID не используется: выбор идёт из интерактивных списков существующих Telegram групп и MAX пользователей.
 6. Потенциально destructive-операции требуют явного подтверждения (`y/enter` для выполнения, `n/esc` для отмены).
 7. Базовые клавиши:
    - `Enter` — открыть/выбрать;
    - `Esc` — шаг назад;
    - `r` — обновить текущий список;
    - `q` — выход.
-8. Для `Добавить маршрут` параметр `ignore_bot_messages` не запрашивается в UI и применяется безопасный default `true`.
+8. Для `Добавить маршрут` в UI применяются безопасные defaults: `filter_mode=all`, `ignore_bot_messages=true` (без ручного ввода этих параметров).
+9. `Создать инвайт` в разделе `Invites` и для выбранного пользователя MAX выполняется в one-click режиме с безопасным default TTL (`24h`) без обязательной формы ручного ввода.
 
 ## 6. Схема данных (PostgreSQL)
 

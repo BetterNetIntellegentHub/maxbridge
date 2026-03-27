@@ -1,4 +1,4 @@
-﻿package domain
+package domain
 
 import "time"
 
@@ -13,9 +13,9 @@ const (
 type RouteFilterMode string
 
 const (
-	RouteFilterAll        RouteFilterMode = "all"
-	RouteFilterTextOnly   RouteFilterMode = "text_only"
-	RouteFilterMentions   RouteFilterMode = "mentions_only"
+	RouteFilterAll      RouteFilterMode = "all"
+	RouteFilterTextOnly RouteFilterMode = "text_only"
+	RouteFilterMentions RouteFilterMode = "mentions_only"
 )
 
 type DeliveryJobStatus string
@@ -37,17 +37,21 @@ const (
 )
 
 type TelegramUpdate struct {
-	UpdateID int64            `json:"update_id"`
-	Message  *TelegramMessage `json:"message,omitempty"`
+	UpdateID      int64                      `json:"update_id"`
+	Message       *TelegramMessage           `json:"message,omitempty"`
+	MyChatMember  *TelegramChatMemberUpdated `json:"my_chat_member,omitempty"`
+	ChatMember    *TelegramChatMemberUpdated `json:"chat_member,omitempty"`
+	ChannelPost   *TelegramMessage           `json:"channel_post,omitempty"`
+	EditedMessage *TelegramMessage           `json:"edited_message,omitempty"`
 }
 
 type TelegramMessage struct {
-	MessageID int64                `json:"message_id"`
-	Date      int64                `json:"date"`
-	Text      string               `json:"text,omitempty"`
-	From      *TelegramUser        `json:"from,omitempty"`
-	Chat      TelegramChat         `json:"chat"`
-	Entities  []TelegramEntity     `json:"entities,omitempty"`
+	MessageID int64            `json:"message_id"`
+	Date      int64            `json:"date"`
+	Text      string           `json:"text,omitempty"`
+	From      *TelegramUser    `json:"from,omitempty"`
+	Chat      TelegramChat     `json:"chat"`
+	Entities  []TelegramEntity `json:"entities,omitempty"`
 }
 
 type TelegramEntity struct {
@@ -66,6 +70,10 @@ type TelegramChat struct {
 	Type  string `json:"type"`
 }
 
+type TelegramChatMemberUpdated struct {
+	Chat TelegramChat `json:"chat"`
+}
+
 type MaxWebhookUpdate struct {
 	Message *MaxWebhookMessage `json:"message,omitempty"`
 }
@@ -80,16 +88,16 @@ type MaxSenderRef struct {
 }
 
 type Invite struct {
-	ID         int64
-	ScopeType  string
-	ScopeID    string
-	CodeHash   string
-	ExpiresAt  time.Time
-	UsedAt     *time.Time
-	RevokedAt  *time.Time
-	CreatedAt  time.Time
-	SingleUse  bool
-	Metadata   map[string]any
+	ID        int64
+	ScopeType string
+	ScopeID   string
+	CodeHash  string
+	ExpiresAt time.Time
+	UsedAt    *time.Time
+	RevokedAt *time.Time
+	CreatedAt time.Time
+	SingleUse bool
+	Metadata  map[string]any
 }
 
 type LinkedUser struct {
@@ -103,33 +111,33 @@ type LinkedUser struct {
 }
 
 type Route struct {
-	ID                   int64
-	TelegramGroupID      int64
-	TelegramChatID       int64
-	MaxUserID            int64
-	Enabled              bool
-	FilterMode           RouteFilterMode
-	IgnoreBotMessages    bool
-	LastDeliveryStatus   string
-	LastDeliveryError    string
-	UpdatedAt            time.Time
+	ID                 int64
+	TelegramGroupID    int64
+	TelegramChatID     int64
+	MaxUserID          int64
+	Enabled            bool
+	FilterMode         RouteFilterMode
+	IgnoreBotMessages  bool
+	LastDeliveryStatus string
+	LastDeliveryError  string
+	UpdatedAt          time.Time
 }
 
 type DeliveryJob struct {
-	ID              int64
-	RouteID          int64
-	TelegramChatID   int64
+	ID                int64
+	RouteID           int64
+	TelegramChatID    int64
 	TelegramMessageID int64
-	MaxUserID        int64
-	PayloadJSON      []byte
-	Status           DeliveryJobStatus
-	Attempts         int
-	MaxAttempts      int
-	AvailableAt      time.Time
-	LeasedUntil      *time.Time
-	LastError        string
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
+	MaxUserID         int64
+	PayloadJSON       []byte
+	Status            DeliveryJobStatus
+	Attempts          int
+	MaxAttempts       int
+	AvailableAt       time.Time
+	LeasedUntil       *time.Time
+	LastError         string
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
 }
 
 type RetryPolicy struct {

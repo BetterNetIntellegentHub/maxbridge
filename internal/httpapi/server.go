@@ -1,4 +1,4 @@
-﻿package httpapi
+package httpapi
 
 import (
 	"context"
@@ -151,8 +151,15 @@ func (s *Server) handleTelegramWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 	s.metrics.TelegramUpdatesTotal.Inc()
 
-	if upd.Message != nil {
-		_ = s.store.AddTelegramGroup(r.Context(), upd.Message.Chat.ID, upd.Message.Chat.Title)
+	if chat, ok := chatForAutoRegistration(upd); ok {
+		title := strings.TrimSpace(chat.Title)
+		if title == "" {
+			title = "Чат " + strconv.FormatInt(chat.ID, 10)
+		}
+		if err := s.store.AddTelegramGroup(r.Context(), chat.ID, title); err != nil {
+			s.metrics.DBErrorsTotal.Inc()
+			s.log.Warn("auto-register telegram group failed", "chat_id", chat.ID, "error", err)
+		}
 	}
 	enqueued, err := s.store.EnqueueTelegramUpdate(r.Context(), upd, s.cfg.WorkerMaxRetry)
 	if err != nil {
@@ -166,6 +173,34 @@ func (s *Server) handleTelegramWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func chatForAutoRegistration(upd domain.TelegramUpdate) (domain.TelegramChat, bool) {
+	if upd.Message != nil && isTelegramGroupChat(upd.Message.Chat.Type) {
+		return upd.Message.Chat, true
+	}
+	if upd.ChannelPost != nil && isTelegramGroupChat(upd.ChannelPost.Chat.Type) {
+		return upd.ChannelPost.Chat, true
+	}
+	if upd.EditedMessage != nil && isTelegramGroupChat(upd.EditedMessage.Chat.Type) {
+		return upd.EditedMessage.Chat, true
+	}
+	if upd.MyChatMember != nil && isTelegramGroupChat(upd.MyChatMember.Chat.Type) {
+		return upd.MyChatMember.Chat, true
+	}
+	if upd.ChatMember != nil && isTelegramGroupChat(upd.ChatMember.Chat.Type) {
+		return upd.ChatMember.Chat, true
+	}
+	return domain.TelegramChat{}, false
+}
+
+func isTelegramGroupChat(chatType string) bool {
+	switch chatType {
+	case "group", "supergroup":
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *Server) handleMaxWebhook(w http.ResponseWriter, r *http.Request) {
@@ -267,4 +302,3 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(v)
 }
-

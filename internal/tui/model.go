@@ -16,6 +16,7 @@ const (
 	modeActions
 	modeForm
 	modeConfirm
+	modeRouteAddPicker
 )
 
 const backActionID = "__back"
@@ -66,6 +67,20 @@ type pendingAction struct {
 	ret    uiMode
 }
 
+type pickerOption struct {
+	id     int64
+	title  string
+	detail string
+}
+
+type routeAddPicker struct {
+	stage         int
+	index         int
+	groupOptions  []pickerOption
+	userOptions   []pickerOption
+	selectedGroup *pickerOption
+}
+
 type Model struct {
 	sections []string
 	index    int
@@ -81,6 +96,7 @@ type Model struct {
 	form           actionForm
 	pending        *pendingAction
 	confirmIndex   int
+	routeAdd       routeAddPicker
 
 	status string
 }
@@ -93,6 +109,12 @@ type sectionLoadedMsg struct {
 
 type actionDoneMsg struct {
 	status string
+	err    error
+}
+
+type routeAddOptionsLoadedMsg struct {
+	groups []pickerOption
+	users  []pickerOption
 	err    error
 }
 
@@ -137,6 +159,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateForm(v)
 		case modeConfirm:
 			return m.updateConfirm(v)
+		case modeRouteAddPicker:
+			return m.updateRouteAddPicker(v)
 		}
 	case sectionLoadedMsg:
 		if v.err != nil {
@@ -166,6 +190,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.currentSection != "" {
 			return m, m.loadSectionCmd(m.currentSection)
+		}
+		return m, nil
+	case routeAddOptionsLoadedMsg:
+		if v.err != nil {
+			m.status = fmt.Sprintf("ошибка загрузки списка: %v", v.err)
+			m.mode = modeRows
+			return m, nil
+		}
+		m.routeAdd.groupOptions = v.groups
+		m.routeAdd.userOptions = v.users
+		m.routeAdd.stage = 0
+		m.routeAdd.index = 0
+		m.routeAdd.selectedGroup = nil
+		if len(v.groups) == 0 {
+			m.status = "Нет доступных групп для маршрута."
+		}
+		if len(v.users) == 0 {
+			if m.status != "" {
+				m.status += " "
+			}
+			m.status += "Нет доступных пользователей MAX."
 		}
 		return m, nil
 	}
@@ -206,6 +251,7 @@ func (m Model) updateSections(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.actionIndex = 0
 		m.pending = nil
 		m.confirmIndex = 0
+		m.routeAdd = routeAddPicker{}
 		m.status = ""
 		m.mode = modeRows
 		return m, m.loadSectionCmd(selected)
@@ -287,6 +333,11 @@ func (m Model) updateActions(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m Model) startAction(act menuAction, entry listEntry) (tea.Model, tea.Cmd) {
 	retMode := m.mode
+	if act.id == "route_add" && retMode == modeRows {
+		m.mode = modeRouteAddPicker
+		m.routeAdd = routeAddPicker{stage: 0, index: 0}
+		return m, m.loadRouteAddOptionsCmd()
+	}
 	if len(act.fields) > 0 {
 		values := make([]string, len(act.fields))
 		for i, f := range act.fields {
@@ -428,6 +479,62 @@ func (m Model) updateConfirm(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m Model) updateRouteAddPicker(key tea.KeyMsg) (tea.Model, tea.Cmd) {
+	options := m.routeAdd.currentOptions()
+	backIndex := len(options)
+	switch key.String() {
+	case "esc", "backspace", "left", "h":
+		if m.routeAdd.stage == 1 {
+			m.routeAdd.stage = 0
+			m.routeAdd.index = 0
+			return m, nil
+		}
+		m.routeAdd = routeAddPicker{}
+		m.mode = modeRows
+		return m, nil
+	case "up", "k":
+		if m.routeAdd.index > 0 {
+			m.routeAdd.index--
+		}
+		return m, nil
+	case "down", "j":
+		if m.routeAdd.index < backIndex {
+			m.routeAdd.index++
+		}
+		return m, nil
+	case "enter":
+		if m.routeAdd.index == backIndex {
+			if m.routeAdd.stage == 1 {
+				m.routeAdd.stage = 0
+				m.routeAdd.index = 0
+				return m, nil
+			}
+			m.routeAdd = routeAddPicker{}
+			m.mode = modeRows
+			return m, nil
+		}
+		if m.routeAdd.index >= len(options) {
+			return m, nil
+		}
+		selected := options[m.routeAdd.index]
+		if m.routeAdd.stage == 0 {
+			m.routeAdd.selectedGroup = &selected
+			m.routeAdd.stage = 1
+			m.routeAdd.index = 0
+			return m, nil
+		}
+		values := map[string]string{
+			"chat_id":     strconv.FormatInt(m.routeAdd.selectedGroup.id, 10),
+			"max_user_id": strconv.FormatInt(selected.id, 10),
+		}
+		m.routeAdd = routeAddPicker{}
+		m.mode = modeRows
+		act := menuAction{id: "route_add", label: "Добавить маршрут"}
+		return m, m.execActionCmd(act, listEntry{}, values)
+	}
+	return m, nil
+}
+
 func (m Model) View() string {
 	out := &strings.Builder{}
 	fmt.Fprintln(out, "Операторский интерфейс MAXBridge")
@@ -502,6 +609,24 @@ func (m Model) View() string {
 		printMenuLine(out, m.confirmIndex == 1, 2, "Назад", "отмена")
 		fmt.Fprintln(out, "")
 		fmt.Fprintln(out, "Enter: выбрать  |  y: подтвердить")
+	case modeRouteAddPicker:
+		if m.routeAdd.stage == 0 {
+			fmt.Fprintln(out, "Добавить маршрут: выбор группы")
+			fmt.Fprintln(out, "-----------------------------")
+		} else {
+			fmt.Fprintln(out, "Добавить маршрут: выбор пользователя MAX")
+			fmt.Fprintln(out, "--------------------------------------")
+			if m.routeAdd.selectedGroup != nil {
+				fmt.Fprintf(out, "Группа: %s\n\n", m.routeAdd.selectedGroup.title)
+			}
+		}
+		opts := m.routeAdd.currentOptions()
+		for i, opt := range opts {
+			printMenuLine(out, i == m.routeAdd.index, i+1, opt.title, opt.detail)
+		}
+		printMenuLine(out, m.routeAdd.index == len(opts), len(opts)+1, "Назад", "вернуться на предыдущий шаг")
+		fmt.Fprintln(out, "")
+		fmt.Fprintln(out, "Enter: выбрать  |  Esc: назад")
 	}
 
 	if m.status != "" {
@@ -567,6 +692,26 @@ func (m Model) loadSectionCmd(section string) tea.Cmd {
 	}
 }
 
+func (m Model) loadRouteAddOptionsCmd() tea.Cmd {
+	return func() tea.Msg {
+		if m.service == nil {
+			return routeAddOptionsLoadedMsg{err: fmt.Errorf("сервис не настроен")}
+		}
+		groupsData, err := m.service.LoadSection("Telegram Groups")
+		if err != nil {
+			return routeAddOptionsLoadedMsg{err: err}
+		}
+		usersData, err := m.service.LoadSection("MAX Users")
+		if err != nil {
+			return routeAddOptionsLoadedMsg{err: err}
+		}
+		return routeAddOptionsLoadedMsg{
+			groups: buildGroupPickerOptions(groupsData.Rows),
+			users:  buildUserPickerOptions(usersData.Rows),
+		}
+	}
+}
+
 func (m Model) buildEntries(section string, rows []map[string]any) []listEntry {
 	sectionActions := m.buildSectionActions(section)
 	entries := make([]listEntry, 0, len(rows)+len(sectionActions)+1)
@@ -593,30 +738,60 @@ func (m Model) buildEntries(section string, rows []map[string]any) []listEntry {
 	return entries
 }
 
+func (p routeAddPicker) currentOptions() []pickerOption {
+	if p.stage == 0 {
+		return p.groupOptions
+	}
+	return p.userOptions
+}
+
+func buildGroupPickerOptions(rows []map[string]any) []pickerOption {
+	out := make([]pickerOption, 0, len(rows))
+	for _, row := range rows {
+		id, err := intFromRow(row, "chat_id")
+		if err != nil {
+			continue
+		}
+		title := strings.TrimSpace(fmt.Sprintf("%v", row["title"]))
+		if title == "" || title == "<nil>" {
+			title = fmt.Sprintf("Чат %d", id)
+		}
+		out = append(out, pickerOption{
+			id:     id,
+			title:  title,
+			detail: fmt.Sprintf("chat_id=%d готовность=%v", id, row["readiness"]),
+		})
+	}
+	return out
+}
+
+func buildUserPickerOptions(rows []map[string]any) []pickerOption {
+	out := make([]pickerOption, 0, len(rows))
+	for _, row := range rows {
+		id, err := intFromRow(row, "max_user_id")
+		if err != nil {
+			continue
+		}
+		out = append(out, pickerOption{
+			id:     id,
+			title:  fmt.Sprintf("Пользователь MAX %d", id),
+			detail: fmt.Sprintf("заблокирован=%v последнее=%v", row["blocked"], row["last"]),
+		})
+	}
+	return out
+}
+
 func (m Model) buildSectionActions(section string) []menuAction {
 	switch section {
 	case "Telegram Groups":
 		return []menuAction{
-			{
-				id:    "group_add",
-				label: "Добавить группу",
-				fields: []formField{
-					{key: "chat_id", label: "ID чата", placeholder: "-1001234567890"},
-					{key: "title", label: "Название", placeholder: "Операционная группа"},
-				},
-			},
 			{id: "group_probe_all", label: "Проверить все группы"},
 		}
 	case "Invites":
 		return []menuAction{
 			{
 				id:    "invite_create",
-				label: "Создать инвайт",
-				fields: []formField{
-					{key: "scope_type", label: "Тип области", placeholder: "group|route|entity", defaultVal: "group"},
-					{key: "scope_id", label: "ID области", placeholder: "123"},
-					{key: "ttl", label: "TTL", placeholder: "24h", defaultVal: "24h"},
-				},
+				label: "Создать инвайт (24ч)",
 			},
 		}
 	case "Routes":
@@ -624,10 +799,6 @@ func (m Model) buildSectionActions(section string) []menuAction {
 			{
 				id:    "route_add",
 				label: "Добавить маршрут",
-				fields: []formField{
-					{key: "chat_id", label: "Чат Telegram (ID)", placeholder: "-1001234567890"},
-					{key: "max_user_id", label: "Пользователь MAX (ID)", placeholder: "10001"},
-				},
 			},
 		}
 	case "Delivery Queue":
@@ -636,9 +807,6 @@ func (m Model) buildSectionActions(section string) []menuAction {
 				id:        "queue_clear_completed",
 				label:     "Очистить завершённые задания",
 				dangerous: true,
-				fields: []formField{
-					{key: "days", label: "Старше дней", placeholder: "7", defaultVal: "7"},
-				},
 			},
 		}
 	default:
@@ -651,18 +819,11 @@ func (m Model) buildRowActions(section string, entry listEntry) []menuAction {
 	case "Telegram Groups":
 		return []menuAction{
 			{id: "group_probe", label: "Проверить группу"},
-			{
-				id:    "group_deeplink",
-				label: "Сформировать ссылку",
-				fields: []formField{
-					{key: "bot_username", label: "Имя бота", placeholder: "my_maxbridge_bot"},
-					{key: "payload", label: "Полезная нагрузка", placeholder: "invite_code"},
-				},
-			},
 			{id: "group_disable", label: "Отключить группу", dangerous: true},
 		}
 	case "MAX Users":
 		return []menuAction{
+			{id: "invite_create_for_user", label: "Создать инвайт (24ч)"},
 			{id: "user_block", label: "Заблокировать пользователя"},
 			{id: "user_unblock", label: "Разблокировать пользователя"},
 			{id: "user_test", label: "Отправить тест"},
@@ -711,8 +872,6 @@ func (m Model) executeAction(section, actionID string, entry listEntry, values m
 			return "", err
 		}
 		return svc.GroupProbe(chatID)
-	case "group_deeplink":
-		return svc.GroupDeepLink(values["bot_username"], values["payload"])
 	case "group_disable":
 		chatID, err := intFromRow(entry.row, "chat_id")
 		if err != nil {
@@ -720,7 +879,13 @@ func (m Model) executeAction(section, actionID string, entry listEntry, values m
 		}
 		return svc.GroupDisable(chatID)
 	case "invite_create":
-		return svc.InviteCreate(values["scope_type"], values["scope_id"], values["ttl"])
+		return svc.InviteCreate("entity", "general", "24h")
+	case "invite_create_for_user":
+		id, err := intFromRow(entry.row, "max_user_id")
+		if err != nil {
+			return "", err
+		}
+		return svc.InviteCreate("entity", strconv.FormatInt(id, 10), "24h")
 	case "invite_revoke":
 		id, err := intFromRow(entry.row, "id")
 		if err != nil {
@@ -730,11 +895,11 @@ func (m Model) executeAction(section, actionID string, entry listEntry, values m
 	case "route_add":
 		chatID, err := parseInt64(values["chat_id"], "chat_id")
 		if err != nil {
-			return "", err
+			return "", fmt.Errorf("выберите группу из списка")
 		}
 		userID, err := parseInt64(values["max_user_id"], "max_user_id")
 		if err != nil {
-			return "", err
+			return "", fmt.Errorf("выберите пользователя MAX из списка")
 		}
 		return svc.RouteAdd(chatID, userID, "all", true)
 	case "route_pause":
@@ -786,11 +951,7 @@ func (m Model) executeAction(section, actionID string, entry listEntry, values m
 		}
 		return svc.QueueRetry(id)
 	case "queue_clear_completed":
-		days, err := strconv.Atoi(strings.TrimSpace(values["days"]))
-		if err != nil {
-			return "", fmt.Errorf("некорректное значение дней")
-		}
-		return svc.QueueClearCompleted(days)
+		return svc.QueueClearCompleted(7)
 	default:
 		return "", fmt.Errorf("неизвестное действие для %s: %s", section, actionID)
 	}
@@ -805,7 +966,7 @@ func formatRowTitle(section string, row map[string]any) string {
 		}
 		return fmt.Sprintf("%s", title)
 	case "MAX Users":
-		return fmt.Sprintf("Пользователь MAX")
+		return fmt.Sprintf("Пользователь MAX %v", row["max_user_id"])
 	case "Invites":
 		return fmt.Sprintf("Область: %v", row["scope"])
 	case "Routes":
@@ -813,7 +974,7 @@ func formatRowTitle(section string, row map[string]any) string {
 		if groupTitle == "" || groupTitle == "<nil>" {
 			groupTitle = fmt.Sprintf("Чат %v", row["chat_id"])
 		}
-		return fmt.Sprintf("%s -> Пользователь MAX", groupTitle)
+		return fmt.Sprintf("%s -> MAX %v", groupTitle, row["max_user_id"])
 	case "Delivery Queue":
 		return fmt.Sprintf("Статус: %v", row["status"])
 	case "Logs":
