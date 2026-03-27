@@ -194,3 +194,45 @@ func TestSectionActionFormEscReturnsToRows(t *testing.T) {
 		t.Fatalf("expected return to modeRows, got %v", next.mode)
 	}
 }
+
+func TestFormHasSaveThenBackButtons(t *testing.T) {
+	m := NewModel(nil)
+	action := menuAction{
+		id:    "test_action",
+		label: "Тест",
+		fields: []formField{
+			{key: "f1", label: "Поле 1"},
+			{key: "f2", label: "Поле 2"},
+		},
+	}
+	m.mode = modeForm
+	m.form = actionForm{
+		action: action,
+		fields: action.fields,
+		values: []string{"a", "b"},
+		index:  len(action.fields),
+		ret:    modeRows,
+	}
+
+	next, cmd := applyKey(m, tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatalf("expected action command from Save button")
+	}
+	if next.mode != modeRows {
+		t.Fatalf("expected modeRows after save, got %v", next.mode)
+	}
+}
+
+func TestRouteAddHasNoIgnoreBotsInput(t *testing.T) {
+	m := NewModel(nil)
+	acts := m.buildSectionActions("Routes")
+	if len(acts) == 0 {
+		t.Fatalf("expected route section actions")
+	}
+	fields := acts[0].fields
+	for _, f := range fields {
+		if f.key == "ignore_bots" {
+			t.Fatalf("ignore_bots should not be shown in route form")
+		}
+	}
+}

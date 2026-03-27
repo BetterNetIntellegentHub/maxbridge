@@ -311,8 +311,9 @@ func (m Model) startAction(act menuAction, entry listEntry) (tea.Model, tea.Cmd)
 }
 
 func (m Model) updateForm(key tea.KeyMsg) (tea.Model, tea.Cmd) {
-	total := len(m.form.fields) + 1
-	backIndex := total - 1
+	saveIndex := len(m.form.fields)
+	backIndex := len(m.form.fields) + 1
+	total := len(m.form.fields) + 2
 	switch key.String() {
 	case "esc", "left", "h":
 		backMode := m.form.ret
@@ -338,6 +339,9 @@ func (m Model) updateForm(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		if len(m.form.fields) > 0 && m.form.index < len(m.form.fields)-1 {
 			m.form.index++
+			return m, nil
+		}
+		if m.form.index != saveIndex {
 			return m, nil
 		}
 
@@ -483,9 +487,10 @@ func (m Model) View() string {
 			label := fmt.Sprintf("%s: %s", f.label, v)
 			printMenuLine(out, i == m.form.index, i+1, label, "")
 		}
-		printMenuLine(out, m.form.index == len(m.form.fields), len(m.form.fields)+1, "Назад", "вернуться к действиям")
+		printMenuLine(out, m.form.index == len(m.form.fields), len(m.form.fields)+1, "Сохранить", "выполнить действие")
+		printMenuLine(out, m.form.index == len(m.form.fields)+1, len(m.form.fields)+2, "Назад", "вернуться к действиям")
 		fmt.Fprintln(out, "")
-		fmt.Fprintln(out, "Enter на последнем поле: выполнить")
+		fmt.Fprintln(out, "Enter: выбрать пункт")
 	case modeConfirm:
 		fmt.Fprintln(out, "Подтверждение")
 		fmt.Fprintln(out, "------------")
@@ -620,10 +625,8 @@ func (m Model) buildSectionActions(section string) []menuAction {
 				id:    "route_add",
 				label: "Добавить маршрут",
 				fields: []formField{
-					{key: "chat_id", label: "ID чата", placeholder: "-1001234567890"},
-					{key: "max_user_id", label: "ID пользователя MAX", placeholder: "10001"},
-					{key: "filter_mode", label: "Фильтр", placeholder: "all|text_only|mentions_only", defaultVal: "all"},
-					{key: "ignore_bots", label: "Игнорировать ботов", placeholder: "true|false", defaultVal: "true"},
+					{key: "chat_id", label: "Чат Telegram (ID)", placeholder: "-1001234567890"},
+					{key: "max_user_id", label: "Пользователь MAX (ID)", placeholder: "10001"},
 				},
 			},
 		}
@@ -733,11 +736,7 @@ func (m Model) executeAction(section, actionID string, entry listEntry, values m
 		if err != nil {
 			return "", err
 		}
-		ignoreBots, err := strconv.ParseBool(strings.TrimSpace(values["ignore_bots"]))
-		if err != nil {
-			return "", fmt.Errorf("некорректное значение ignore_bots")
-		}
-		return svc.RouteAdd(chatID, userID, strings.TrimSpace(values["filter_mode"]), ignoreBots)
+		return svc.RouteAdd(chatID, userID, "all", true)
 	case "route_pause":
 		id, err := intFromRow(entry.row, "id")
 		if err != nil {
@@ -800,15 +799,23 @@ func (m Model) executeAction(section, actionID string, entry listEntry, values m
 func formatRowTitle(section string, row map[string]any) string {
 	switch section {
 	case "Telegram Groups":
-		return fmt.Sprintf("Чат %v | %v", row["chat_id"], row["title"])
+		title := strings.TrimSpace(fmt.Sprintf("%v", row["title"]))
+		if title == "" || title == "<nil>" {
+			title = "Без названия"
+		}
+		return fmt.Sprintf("%s", title)
 	case "MAX Users":
-		return fmt.Sprintf("Пользователь MAX %v", row["max_user_id"])
+		return fmt.Sprintf("Пользователь MAX")
 	case "Invites":
-		return fmt.Sprintf("Инвайт %v | %v", row["id"], row["scope"])
+		return fmt.Sprintf("Область: %v", row["scope"])
 	case "Routes":
-		return fmt.Sprintf("Маршрут %v | чат %v -> пользователь %v", row["id"], row["chat_id"], row["max_user_id"])
+		groupTitle := strings.TrimSpace(fmt.Sprintf("%v", row["group_title"]))
+		if groupTitle == "" || groupTitle == "<nil>" {
+			groupTitle = fmt.Sprintf("Чат %v", row["chat_id"])
+		}
+		return fmt.Sprintf("%s -> Пользователь MAX", groupTitle)
 	case "Delivery Queue":
-		return fmt.Sprintf("Задание %v | статус %v", row["id"], row["status"])
+		return fmt.Sprintf("Статус: %v", row["status"])
 	case "Logs":
 		return fmt.Sprintf("[%v] %v", row["level"], row["message"])
 	default:
@@ -822,15 +829,15 @@ func formatRowTitle(section string, row map[string]any) string {
 func formatRowDetail(section string, row map[string]any) string {
 	switch section {
 	case "Telegram Groups":
-		return fmt.Sprintf("ID=%v готовность=%v включена=%v", row["id"], row["readiness"], row["enabled"])
+		return fmt.Sprintf("chat_id=%v id=%v готовность=%v включена=%v", row["chat_id"], row["id"], row["readiness"], row["enabled"])
 	case "MAX Users":
-		return fmt.Sprintf("заблокирован=%v последнее=%v", row["blocked"], row["last"])
+		return fmt.Sprintf("max_user_id=%v id=%v заблокирован=%v последнее=%v", row["max_user_id"], row["id"], row["blocked"], row["last"])
 	case "Invites":
-		return fmt.Sprintf("до=%v отозван=%v использован=%v", row["expires_at"], row["revoked_at"], row["used_at"])
+		return fmt.Sprintf("id=%v до=%v отозван=%v использован=%v", row["id"], row["expires_at"], row["revoked_at"], row["used_at"])
 	case "Routes":
-		return fmt.Sprintf("включен=%v фильтр=%v игнор_ботов=%v", row["enabled"], row["filter"], row["ignore_bots"])
+		return fmt.Sprintf("id=%v chat_id=%v max_user_id=%v включен=%v фильтр=%v", row["id"], row["chat_id"], row["max_user_id"], row["enabled"], row["filter"])
 	case "Delivery Queue":
-		return fmt.Sprintf("попытки=%v/%v доступно=%v", row["attempts"], row["max_attempts"], row["available_at"])
+		return fmt.Sprintf("job_id=%v max_user_id=%v chat_id=%v попытки=%v/%v доступно=%v", row["id"], row["max_user_id"], row["chat_id"], row["attempts"], row["max_attempts"], row["available_at"])
 	case "Logs":
 		return fmt.Sprintf("источник=%v время=%v", row["source"], row["created_at"])
 	default:

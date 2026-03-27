@@ -1,4 +1,4 @@
-﻿package storage
+package storage
 
 import (
 	"context"
@@ -417,7 +417,7 @@ func (s *Store) GetQueueStats(ctx context.Context) (QueueStats, error) {
 }
 
 func (s *Store) ListTelegramGroups(ctx context.Context) ([]map[string]any, error) {
-	rows, err := s.pool.Query(ctx, `SELECT id, telegram_chat_id, title, readiness, readiness_reason, is_enabled, updated_at FROM telegram_groups ORDER BY id`) 
+	rows, err := s.pool.Query(ctx, `SELECT id, telegram_chat_id, title, readiness, readiness_reason, is_enabled, updated_at FROM telegram_groups ORDER BY id`)
 	if err != nil {
 		return nil, err
 	}
@@ -483,7 +483,12 @@ func (s *Store) ListInvites(ctx context.Context) ([]map[string]any, error) {
 }
 
 func (s *Store) ListRoutes(ctx context.Context) ([]map[string]any, error) {
-	rows, err := s.pool.Query(ctx, `SELECT id, telegram_chat_id, max_user_id, enabled, filter_mode, ignore_bot_messages, last_delivery_status, updated_at FROM routes ORDER BY id`)
+	rows, err := s.pool.Query(ctx, `
+		SELECT r.id, r.telegram_chat_id, r.max_user_id, r.enabled, r.filter_mode, r.ignore_bot_messages, r.last_delivery_status, r.updated_at, tg.title
+		FROM routes r
+		LEFT JOIN telegram_groups tg ON tg.telegram_chat_id = r.telegram_chat_id
+		ORDER BY r.id
+	`)
 	if err != nil {
 		return nil, err
 	}
@@ -493,12 +498,22 @@ func (s *Store) ListRoutes(ctx context.Context) ([]map[string]any, error) {
 	for rows.Next() {
 		var id, chatID, userID int64
 		var enabled, ignore bool
-		var filter, status string
+		var filter, status, groupTitle string
 		var updated time.Time
-		if err := rows.Scan(&id, &chatID, &userID, &enabled, &filter, &ignore, &status, &updated); err != nil {
+		if err := rows.Scan(&id, &chatID, &userID, &enabled, &filter, &ignore, &status, &updated, &groupTitle); err != nil {
 			return nil, err
 		}
-		out = append(out, map[string]any{"id": id, "chat_id": chatID, "max_user_id": userID, "enabled": enabled, "filter": filter, "ignore_bots": ignore, "status": status, "updated_at": updated})
+		out = append(out, map[string]any{
+			"id":          id,
+			"chat_id":     chatID,
+			"max_user_id": userID,
+			"enabled":     enabled,
+			"filter":      filter,
+			"ignore_bots": ignore,
+			"status":      status,
+			"updated_at":  updated,
+			"group_title": groupTitle,
+		})
 	}
 	return out, rows.Err()
 }
