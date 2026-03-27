@@ -21,7 +21,6 @@ type Client struct {
 }
 
 type SendMessageRequest struct {
-	UserID      int64        `json:"user_id"`
 	Text        string       `json:"text"`
 	Attachments []Attachment `json:"attachments,omitempty"`
 }
@@ -85,13 +84,14 @@ func (c *Client) SendMessage(ctx context.Context, userID int64, text string) err
 }
 
 func (c *Client) SendMessageWithAttachments(ctx context.Context, userID int64, text string, attachments []Attachment) error {
-	payload := SendMessageRequest{UserID: userID, Text: text, Attachments: attachments}
+	payload := SendMessageRequest{Text: text, Attachments: attachments}
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return err
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/messages", bytes.NewReader(body))
+	u := c.baseURL + "/messages?user_id=" + url.QueryEscape(fmt.Sprintf("%d", userID))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u, bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
