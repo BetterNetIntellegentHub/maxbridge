@@ -233,7 +233,14 @@ func (s *Server) handleMaxWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	code, ok := invites.ParseLinkCommand(upd.Message.Text)
+	userID, text, ok := extractMaxLinkInput(upd)
+	if !ok {
+		s.metrics.InvalidLinkIgnoredTotal.Inc()
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	code, ok := invites.ParseLinkCommand(text)
 	if !ok {
 		s.metrics.InvalidLinkIgnoredTotal.Inc()
 		w.WriteHeader(http.StatusNoContent)
@@ -248,12 +255,6 @@ func (s *Server) handleMaxWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID := upd.Message.Sender.UserID
-	if userID <= 0 {
-		s.metrics.InvalidLinkIgnoredTotal.Inc()
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
 	_, err = s.store.UpsertLinkedUser(r.Context(), userID)
 	if err != nil {
 		s.metrics.DBErrorsTotal.Inc()
@@ -284,6 +285,27 @@ func (s *Server) handleMaxWebhook(w http.ResponseWriter, r *http.Request) {
 
 	s.metrics.SuccessfulLinksTotal.Inc()
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func extractMaxLinkInput(upd domain.MaxWebhookUpdate) (userID int64, text string, ok bool) {
+	if upd.Message == nil {
+		return 0, "", false
+	}
+	userID = upd.Message.Sender.UserID
+	if userID <= 0 {
+		return 0, "", false
+	}
+	text = strings.TrimSpace(upd.Message.Text)
+	if text != "" {
+		return userID, text, true
+	}
+	if upd.Message.Body != nil {
+		text = strings.TrimSpace(upd.Message.Body.Text)
+		if text != "" {
+			return userID, text, true
+		}
+	}
+	return 0, "", false
 }
 
 func cutErr(err error) string {

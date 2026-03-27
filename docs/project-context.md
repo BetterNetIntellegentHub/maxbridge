@@ -54,7 +54,7 @@ Path: `docs/project-context.md`
 ### 3.2 MAX link onboarding
 1. `POST /webhooks/max`.
 2. Проверка `X-Max-Bot-Api-Secret`.
-3. Обработка только `/link <invite_code>`.
+3. Обработка только `/link <invite_code>` (команда извлекается из `message.text` или `message.body.text` MAX update).
 4. Invalid/unknown link:
    - no reply
    - no DB writes
@@ -195,6 +195,12 @@ Path: `docs/project-context.md`
 6. При деплое нового образа задавать `maxbridge_image` явно (например `docker.io/argusvlad/maxbridge:<tag>`), иначе может использоваться default placeholder registry.
 7. Токен registry хранится в Vault; для публикации образов с control host нужны scope на push (`read/write`), иначе `docker push` вернёт `insufficient scopes`.
 8. После пересоздания `bridge` возможен кратковременный `502` на внешнем `health/ready` из-за stale upstream в Nginx; рабочий обход — рестарт `compose-nginx-1`.
+9. После успешного `docker push`/deploy выполняется безопасная очистка неиспользуемых артефактов:
+   - локально: Docker build cache, неиспользуемые образы, Go cache/modcache, `%TEMP%` (`AppData\\Local\\Temp`) и рабочие временные файлы;
+   - на сервере: только неиспользуемые Docker images/cache/stopped containers;
+   - активные контейнеры и используемые тома не удаляются.
+   - post-check: `docker system df` и проверка свободного места на `C:`/host; на сервере дополнительно проверяется `docker ps`.
+   - если свободное место на `C:` не увеличивается после cleanup, проверяются крупные `*.vhdx` (Docker/WSL), для них применяется отдельная процедура compact по явному подтверждению оператора.
 
 ### 10.3 Rollback
 1. Повторный deploy с предыдущим immutable tag.

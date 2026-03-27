@@ -78,9 +78,14 @@ type MaxWebhookUpdate struct {
 	Message *MaxWebhookMessage `json:"message,omitempty"`
 }
 
+type MaxWebhookBody struct {
+	Text string `json:"text,omitempty"`
+}
+
 type MaxWebhookMessage struct {
-	Text   string       `json:"text,omitempty"`
-	Sender MaxSenderRef `json:"sender"`
+	Text   string          `json:"text,omitempty"`
+	Body   *MaxWebhookBody `json:"body,omitempty"`
+	Sender MaxSenderRef    `json:"sender"`
 }
 
 type MaxSenderRef struct {
