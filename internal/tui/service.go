@@ -50,7 +50,7 @@ func (s *AdminService) loadSection(ctx context.Context, section string) (Section
 		}
 		events, _ := s.store.ListRecentEvents(ctx, 8)
 		b := &strings.Builder{}
-		fmt.Fprintf(b, "Группы: %d\nПользователи MAX: %d\nМаршруты: %d\nГлубина очереди: %d\nВ повторе: %d\nВ dead-letter: %d\nВозраст старейшего pending: %ds\n\n",
+		fmt.Fprintf(b, "Группы: %d\nПользователи MAX: %d\nМаршруты: %d\nГлубина очереди: %d\nВ повторе: %d\nВ DLQ (dead-letter): %d\nВозраст старейшего ожидающего задания: %ds\n\n",
 			groups, users, routes, queue.PendingDepth, queue.RetryDepth, queue.DeadLetterDepth, queue.OldestPendingAgeS)
 		fmt.Fprintln(b, "Последние события:")
 		for _, e := range events {
@@ -308,7 +308,7 @@ func (s *AdminService) QueueRetry(jobID int64) (string, error) {
 	if err := s.store.RetryJobNow(ctx, jobID); err != nil {
 		return "", err
 	}
-	return "Задание поставлено в retry.", nil
+	return "Задание поставлено на повтор.", nil
 }
 
 func (s *AdminService) QueueClearCompleted(days int) (string, error) {
@@ -523,7 +523,7 @@ func renderRows(rows []map[string]any) string {
 
 func helpText() string {
 	return strings.TrimSpace(`
-Справка (legacy command mode):
+Справка (устаревший командный режим):
 
 group add <chat_id> <title>
 group probe <chat_id>
