@@ -157,23 +157,20 @@ func (c *Client) requestUploadURL(ctx context.Context, uploadType string) (strin
 }
 
 func (c *Client) uploadFile(ctx context.Context, uploadURL string, fileName string, content io.Reader) (map[string]any, error) {
-	pr, pw := io.Pipe()
-	mw := multipart.NewWriter(pw)
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	part, err := mw.CreateFormFile("data", safeFileName(fileName))
+	if err != nil {
+		return nil, err
+	}
+	if _, err := io.Copy(part, content); err != nil {
+		return nil, err
+	}
+	if err := mw.Close(); err != nil {
+		return nil, err
+	}
 
-	go func() {
-		defer pw.Close()
-		defer mw.Close()
-		part, err := mw.CreateFormFile("data", safeFileName(fileName))
-		if err != nil {
-			_ = pw.CloseWithError(err)
-			return
-		}
-		if _, err := io.Copy(part, content); err != nil {
-			_ = pw.CloseWithError(err)
-		}
-	}()
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, uploadURL, pr)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, uploadURL, bytes.NewReader(body.Bytes()))
 	if err != nil {
 		return nil, err
 	}
