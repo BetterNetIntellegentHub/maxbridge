@@ -361,8 +361,8 @@ func extractOutboundMedia(msg domain.TelegramMessage) []outboundMedia {
 		out = append(out, outboundMedia{
 			FileID:         msg.Voice.FileID,
 			FileName:       "voice.ogg",
-			AttachmentType: "audio",
-			UploadType:     "audio",
+			AttachmentType: "file",
+			UploadType:     "file",
 		})
 	}
 	if msg.Animation != nil && strings.TrimSpace(msg.Animation.FileID) != "" {
