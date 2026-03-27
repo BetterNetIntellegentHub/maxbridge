@@ -63,25 +63,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.index > 0 {
 				m.index--
 			}
-			return m, m.loadSectionCmd()
+			return m, nil
 		case "down", "j":
 			if m.index < len(m.sections)-1 {
 				m.index++
 			}
-			if m.sections[m.index] == "Exit" {
-				return m, tea.Quit
-			}
-			return m, m.loadSectionCmd()
+			return m, nil
 		case "tab", "right", "l":
 			m.index = (m.index + 1) % len(m.sections)
-			if m.sections[m.index] == "Exit" {
-				m.index = 0
-			}
-			return m, m.loadSectionCmd()
+			return m, nil
 		case "left", "h":
 			m.index--
 			if m.index < 0 {
-				m.index = len(m.sections) - 2
+				m.index = len(m.sections) - 1
+			}
+			return m, nil
+		case "enter":
+			if m.sections[m.index] == "Exit" {
+				return m, tea.Quit
 			}
 			return m, m.loadSectionCmd()
 		case "r":
@@ -156,7 +155,7 @@ func (m Model) View() string {
 	fmt.Fprintf(right, "[%s]\n\n", m.sections[m.index])
 	fmt.Fprintln(right, m.content)
 	fmt.Fprintln(right, "")
-	fmt.Fprintln(right, "Keys: arrows/tab navigate | r refresh | : command | q quit")
+	fmt.Fprintln(right, "Keys: arrows/tab navigate | enter select | r refresh | : command | q quit")
 	if m.cmdMode {
 		fmt.Fprintf(right, "> %s", m.cmdInput)
 	}
