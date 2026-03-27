@@ -1,11 +1,14 @@
-﻿package delivery
+package delivery
 
 import (
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -19,11 +22,18 @@ import (
 
 type maxSender interface {
 	SendMessage(ctx context.Context, userID int64, text string) error
+	SendMessageWithAttachments(ctx context.Context, userID int64, text string, attachments []maxapi.Attachment) error
+	UploadAttachment(ctx context.Context, uploadType string, fileName string, content io.Reader) (maxapi.Attachment, error)
+}
+
+type telegramMediaFetcher interface {
+	DownloadFile(ctx context.Context, fileID string) (io.ReadCloser, string, error)
 }
 
 type Worker struct {
 	store       *storage.Store
 	sender      maxSender
+	tgMedia     telegramMediaFetcher
 	log         *slog.Logger
 	metrics     *app.Metrics
 	concurrency int
@@ -36,6 +46,7 @@ type Worker struct {
 func NewWorker(
 	store *storage.Store,
 	sender maxSender,
+	tgMedia telegramMediaFetcher,
 	log *slog.Logger,
 	metrics *app.Metrics,
 	concurrency int,
@@ -52,6 +63,7 @@ func NewWorker(
 	return &Worker{
 		store:       store,
 		sender:      sender,
+		tgMedia:     tgMedia,
 		log:         log,
 		metrics:     metrics,
 		concurrency: concurrency,
@@ -143,9 +155,14 @@ func (w *Worker) processOne(ctx context.Context, job domain.DeliveryJob) {
 		return
 	}
 
-	text := renderMessage(job)
+	out := renderMessage(job)
+	attachments, mediaErr := w.prepareAttachments(ctx, out.Media)
+	if mediaErr != nil {
+		w.retry(ctx, job, mediaErr, true)
+		return
+	}
 	start := time.Now()
-	err := w.sender.SendMessage(ctx, job.MaxUserID, text)
+	err := w.sender.SendMessageWithAttachments(ctx, job.MaxUserID, out.Text, attachments)
 	latency := time.Since(start)
 	w.metrics.MaxAPILatency.Observe(latency.Seconds())
 
@@ -202,15 +219,175 @@ func (w *Worker) retry(ctx context.Context, job domain.DeliveryJob, err error, t
 	w.metrics.RetryTotal.Inc()
 }
 
-func renderMessage(job domain.DeliveryJob) string {
+type outboundMedia struct {
+	FileID         string
+	FileName       string
+	AttachmentType string
+	UploadType     string
+}
+
+type outboundMessage struct {
+	Text  string
+	Media []outboundMedia
+}
+
+func renderMessage(job domain.DeliveryJob) outboundMessage {
 	var msg domain.TelegramMessage
 	if err := json.Unmarshal(job.PayloadJSON, &msg); err != nil {
-		return fmt.Sprintf("[bridge] tg:%d msg:%d", job.TelegramChatID, job.TelegramMessageID)
+		return outboundMessage{
+			Text: fmt.Sprintf("[bridge] tg:%d msg:%d", job.TelegramChatID, job.TelegramMessageID),
+		}
 	}
-	if msg.Text == "" {
-		return fmt.Sprintf("[bridge] сообщение без текста\nchat=%d msg=%d", msg.Chat.ID, msg.MessageID)
+	chatName := telegramChatName(msg.Chat)
+	senderName := telegramSenderName(msg.From)
+	header := fmt.Sprintf("%s - %s", chatName, senderName)
+	bodyParts := make([]string, 0, 2)
+
+	if text := strings.TrimSpace(msg.Text); text != "" {
+		bodyParts = append(bodyParts, text)
 	}
-	return fmt.Sprintf("[TG %d] %s", msg.Chat.ID, msg.Text)
+	if caption := strings.TrimSpace(msg.Caption); caption != "" {
+		bodyParts = append(bodyParts, caption)
+	}
+
+	media := extractOutboundMedia(msg)
+	if len(bodyParts) == 0 && len(media) == 0 {
+		bodyParts = append(bodyParts, fmt.Sprintf("[bridge] сообщение без текста и вложений\nchat=%d msg=%d", msg.Chat.ID, msg.MessageID))
+	}
+	if len(bodyParts) == 0 {
+		return outboundMessage{Text: header, Media: media}
+	}
+	return outboundMessage{
+		Text:  header + "\n" + strings.Join(bodyParts, "\n"),
+		Media: media,
+	}
+}
+
+func telegramChatName(chat domain.TelegramChat) string {
+	if title := strings.TrimSpace(chat.Title); title != "" {
+		return title
+	}
+	if username := strings.TrimSpace(chat.Username); username != "" {
+		return "@" + strings.TrimPrefix(username, "@")
+	}
+	return fmt.Sprintf("chat_%d", chat.ID)
+}
+
+func telegramSenderName(from *domain.TelegramUser) string {
+	if from == nil {
+		return "unknown_sender"
+	}
+	fullName := strings.TrimSpace(strings.TrimSpace(from.FirstName) + " " + strings.TrimSpace(from.LastName))
+	if fullName != "" {
+		return fullName
+	}
+	if username := strings.TrimSpace(from.Username); username != "" {
+		return "@" + strings.TrimPrefix(username, "@")
+	}
+	if from.ID > 0 {
+		return fmt.Sprintf("user_%d", from.ID)
+	}
+	return "unknown_sender"
+}
+
+func extractOutboundMedia(msg domain.TelegramMessage) []outboundMedia {
+	out := make([]outboundMedia, 0, 1)
+
+	if len(msg.Photo) > 0 {
+		last := msg.Photo[len(msg.Photo)-1]
+		if strings.TrimSpace(last.FileID) != "" {
+			out = append(out, outboundMedia{
+				FileID:         last.FileID,
+				FileName:       "photo.jpg",
+				AttachmentType: "image",
+				UploadType:     "image",
+			})
+		}
+	}
+	if msg.Document != nil && strings.TrimSpace(msg.Document.FileID) != "" {
+		out = append(out, outboundMedia{
+			FileID:         msg.Document.FileID,
+			FileName:       msg.Document.FileName,
+			AttachmentType: "file",
+			UploadType:     "file",
+		})
+	}
+	if msg.Video != nil && strings.TrimSpace(msg.Video.FileID) != "" {
+		out = append(out, outboundMedia{
+			FileID:         msg.Video.FileID,
+			FileName:       "video.mp4",
+			AttachmentType: "video",
+			UploadType:     "video",
+		})
+	}
+	if msg.Audio != nil && strings.TrimSpace(msg.Audio.FileID) != "" {
+		name := strings.TrimSpace(msg.Audio.FileName)
+		if name == "" {
+			name = "audio.mp3"
+		}
+		out = append(out, outboundMedia{
+			FileID:         msg.Audio.FileID,
+			FileName:       name,
+			AttachmentType: "audio",
+			UploadType:     "audio",
+		})
+	}
+	if msg.Voice != nil && strings.TrimSpace(msg.Voice.FileID) != "" {
+		out = append(out, outboundMedia{
+			FileID:         msg.Voice.FileID,
+			FileName:       "voice.ogg",
+			AttachmentType: "audio",
+			UploadType:     "audio",
+		})
+	}
+	if msg.Animation != nil && strings.TrimSpace(msg.Animation.FileID) != "" {
+		name := strings.TrimSpace(msg.Animation.FileName)
+		if name == "" {
+			name = "animation.gif"
+		}
+		out = append(out, outboundMedia{
+			FileID:         msg.Animation.FileID,
+			FileName:       name,
+			AttachmentType: "file",
+			UploadType:     "file",
+		})
+	}
+	return out
+}
+
+func (w *Worker) prepareAttachments(ctx context.Context, media []outboundMedia) ([]maxapi.Attachment, error) {
+	if len(media) == 0 {
+		return nil, nil
+	}
+	if w.tgMedia == nil {
+		return nil, errors.New("telegram media client is not configured")
+	}
+
+	out := make([]maxapi.Attachment, 0, len(media))
+	for _, m := range media {
+		body, fallbackName, err := w.tgMedia.DownloadFile(ctx, m.FileID)
+		if err != nil {
+			return nil, err
+		}
+
+		filename := strings.TrimSpace(m.FileName)
+		if filename == "" {
+			filename = strings.TrimSpace(fallbackName)
+		}
+		if filename == "" {
+			filename = "attachment.bin"
+		}
+		filename = filepath.Base(filename)
+
+		att, upErr := w.sender.UploadAttachment(ctx, m.UploadType, filename, body)
+		_ = body.Close()
+		if upErr != nil {
+			return nil, upErr
+		}
+		att.Type = m.AttachmentType
+		out = append(out, att)
+	}
+	return out, nil
 }
 
 func cutErr(err error) string {
@@ -230,4 +407,3 @@ func maxInt(a, b int) int {
 	}
 	return b
 }
-

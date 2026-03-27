@@ -1,4 +1,4 @@
-﻿package main
+package main
 
 import (
 	"context"
@@ -17,6 +17,7 @@ import (
 	"maxbridge/internal/delivery"
 	maxapi "maxbridge/internal/max"
 	"maxbridge/internal/storage"
+	"maxbridge/internal/telegram"
 )
 
 func main() {
@@ -41,9 +42,11 @@ func main() {
 
 	metrics := app.NewMetrics(prometheus.DefaultRegisterer)
 	mx := maxapi.NewClient(cfg.MaxAPIBaseURL, cfg.MaxToken)
+	tg := telegram.NewClient(cfg.TelegramToken)
 	worker := delivery.NewWorker(
 		store,
 		mx,
+		tg,
 		log,
 		metrics,
 		cfg.WorkerConcurrency,

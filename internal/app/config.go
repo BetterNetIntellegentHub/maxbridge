@@ -1,4 +1,4 @@
-﻿package app
+package app
 
 import (
 	"errors"
@@ -57,20 +57,20 @@ type Config struct {
 
 func LoadConfig() (Config, error) {
 	cfg := Config{
-		Env:                  getenv("APP_ENV", "dev"),
-		LogLevel:             getenv("LOG_LEVEL", "info"),
-		HTTPAddr:             getenv("HTTP_ADDR", defaultHTTPAddr),
-		MetricsAddr:          getenv("METRICS_ADDR", defaultMetricsAddr),
-		MaxAPIBaseURL:        getenv("MAX_API_BASE_URL", "https://botapi.max.ru"),
-		WebhookReadTimeout:   parseDuration("WEBHOOK_READ_TIMEOUT", defaultWebhookReadTimeout),
-		WebhookWriteTimeout:  parseDuration("WEBHOOK_WRITE_TIMEOUT", defaultWebhookWriteTimeout),
-		MaxWebhookBodyBytes:  parseInt64("MAX_WEBHOOK_BODY_BYTES", defaultMaxWebhookBodyBytes),
-		WorkerConcurrency:    parseInt("WORKER_CONCURRENCY", defaultWorkerConcurrency),
-		WorkerLease:          time.Duration(parseInt("WORKER_LEASE_SECONDS", defaultWorkerLeaseSeconds)) * time.Second,
-		WorkerMaxRetry:       parseInt("WORKER_MAX_RETRY", defaultWorkerMaxRetry),
-		WorkerRateLimitRPS:   parseInt("WORKER_RATE_LIMIT_RPS", defaultWorkerRateLimitRPS),
-		RetentionJobsDays:    parseInt("RETENTION_JOBS_DAYS", defaultRetentionJobsDays),
-		RetentionDedupeDays:  parseInt("RETENTION_DEDUPE_DAYS", defaultRetentionDedupeDays),
+		Env:                 getenv("APP_ENV", "dev"),
+		LogLevel:            getenv("LOG_LEVEL", "info"),
+		HTTPAddr:            getenv("HTTP_ADDR", defaultHTTPAddr),
+		MetricsAddr:         getenv("METRICS_ADDR", defaultMetricsAddr),
+		MaxAPIBaseURL:       getenv("MAX_API_BASE_URL", "https://botapi.max.ru"),
+		WebhookReadTimeout:  parseDuration("WEBHOOK_READ_TIMEOUT", defaultWebhookReadTimeout),
+		WebhookWriteTimeout: parseDuration("WEBHOOK_WRITE_TIMEOUT", defaultWebhookWriteTimeout),
+		MaxWebhookBodyBytes: parseInt64("MAX_WEBHOOK_BODY_BYTES", defaultMaxWebhookBodyBytes),
+		WorkerConcurrency:   parseInt("WORKER_CONCURRENCY", defaultWorkerConcurrency),
+		WorkerLease:         time.Duration(parseInt("WORKER_LEASE_SECONDS", defaultWorkerLeaseSeconds)) * time.Second,
+		WorkerMaxRetry:      parseInt("WORKER_MAX_RETRY", defaultWorkerMaxRetry),
+		WorkerRateLimitRPS:  parseInt("WORKER_RATE_LIMIT_RPS", defaultWorkerRateLimitRPS),
+		RetentionJobsDays:   parseInt("RETENTION_JOBS_DAYS", defaultRetentionJobsDays),
+		RetentionDedupeDays: parseInt("RETENTION_DEDUPE_DAYS", defaultRetentionDedupeDays),
 		RetentionPayloadHours: parseInt(
 			"RETENTION_PAYLOAD_HOURS",
 			defaultRetentionPayloadHours,
@@ -92,6 +92,9 @@ func LoadConfig() (Config, error) {
 	}
 	if cfg.TelegramWebhookSecret == "" {
 		return Config{}, errors.New("missing TELEGRAM_WEBHOOK_SECRET or TELEGRAM_WEBHOOK_SECRET_FILE")
+	}
+	if cfg.TelegramToken == "" {
+		return Config{}, errors.New("missing TELEGRAM_BOT_TOKEN or TELEGRAM_BOT_TOKEN_FILE")
 	}
 	if cfg.MaxWebhookSecret == "" {
 		return Config{}, errors.New("missing MAX_WEBHOOK_SECRET or MAX_WEBHOOK_SECRET_FILE")

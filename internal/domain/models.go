@@ -46,12 +46,19 @@ type TelegramUpdate struct {
 }
 
 type TelegramMessage struct {
-	MessageID int64            `json:"message_id"`
-	Date      int64            `json:"date"`
-	Text      string           `json:"text,omitempty"`
-	From      *TelegramUser    `json:"from,omitempty"`
-	Chat      TelegramChat     `json:"chat"`
-	Entities  []TelegramEntity `json:"entities,omitempty"`
+	MessageID int64              `json:"message_id"`
+	Date      int64              `json:"date"`
+	Text      string             `json:"text,omitempty"`
+	Caption   string             `json:"caption,omitempty"`
+	From      *TelegramUser      `json:"from,omitempty"`
+	Chat      TelegramChat       `json:"chat"`
+	Entities  []TelegramEntity   `json:"entities,omitempty"`
+	Photo     []TelegramPhoto    `json:"photo,omitempty"`
+	Document  *TelegramDocument  `json:"document,omitempty"`
+	Video     *TelegramVideo     `json:"video,omitempty"`
+	Audio     *TelegramAudio     `json:"audio,omitempty"`
+	Voice     *TelegramVoice     `json:"voice,omitempty"`
+	Animation *TelegramAnimation `json:"animation,omitempty"`
 }
 
 type TelegramEntity struct {
@@ -59,15 +66,45 @@ type TelegramEntity struct {
 }
 
 type TelegramUser struct {
-	ID       int64  `json:"id"`
-	IsBot    bool   `json:"is_bot"`
-	Username string `json:"username,omitempty"`
+	ID        int64  `json:"id"`
+	IsBot     bool   `json:"is_bot"`
+	Username  string `json:"username,omitempty"`
+	FirstName string `json:"first_name,omitempty"`
+	LastName  string `json:"last_name,omitempty"`
 }
 
 type TelegramChat struct {
-	ID    int64  `json:"id"`
-	Title string `json:"title,omitempty"`
-	Type  string `json:"type"`
+	ID       int64  `json:"id"`
+	Title    string `json:"title,omitempty"`
+	Username string `json:"username,omitempty"`
+	Type     string `json:"type"`
+}
+
+type TelegramPhoto struct {
+	FileID string `json:"file_id,omitempty"`
+}
+
+type TelegramDocument struct {
+	FileID   string `json:"file_id,omitempty"`
+	FileName string `json:"file_name,omitempty"`
+}
+
+type TelegramVideo struct {
+	FileID string `json:"file_id,omitempty"`
+}
+
+type TelegramAudio struct {
+	FileID   string `json:"file_id,omitempty"`
+	FileName string `json:"file_name,omitempty"`
+}
+
+type TelegramVoice struct {
+	FileID string `json:"file_id,omitempty"`
+}
+
+type TelegramAnimation struct {
+	FileID   string `json:"file_id,omitempty"`
+	FileName string `json:"file_name,omitempty"`
 }
 
 type TelegramChatMemberUpdated struct {

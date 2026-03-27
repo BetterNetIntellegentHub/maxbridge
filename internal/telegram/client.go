@@ -1,4 +1,4 @@
-﻿package telegram
+package telegram
 
 import (
 	"context"
@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"path"
 	"strconv"
 	"time"
 
@@ -19,9 +20,9 @@ type Client struct {
 }
 
 type ProbeResult struct {
-	Readiness domain.GroupReadiness
-	Reason    string
-	BotStatus string
+	Readiness  domain.GroupReadiness
+	Reason     string
+	BotStatus  string
 	CanReadAll bool
 }
 
@@ -38,6 +39,10 @@ type getMeResult struct {
 
 type getChatMemberResult struct {
 	Status string `json:"status"`
+}
+
+type getFileResult struct {
+	FilePath string `json:"file_path"`
 }
 
 func NewClient(token string) *Client {
@@ -63,10 +68,10 @@ func (c *Client) ProbeGroup(ctx context.Context, chatID int64) (ProbeResult, err
 	}
 
 	result := ProbeResult{
-		BotStatus:   member.Status,
-		CanReadAll:  me.CanReadAllGroupMessages,
-		Readiness:   domain.GroupReady,
-		Reason:      "all checks passed; smoke test requires a real user message in group",
+		BotStatus:  member.Status,
+		CanReadAll: me.CanReadAllGroupMessages,
+		Readiness:  domain.GroupReady,
+		Reason:     "all checks passed; smoke test requires a real user message in group",
 	}
 
 	switch member.Status {
@@ -93,6 +98,39 @@ func (c *Client) DeepLinkStartGroup(botUsername string, payload string) string {
 	q.Set("startgroup", payload)
 	u.RawQuery = q.Encode()
 	return u.String()
+}
+
+func (c *Client) DownloadFile(ctx context.Context, fileID string) (io.ReadCloser, string, error) {
+	params := map[string]string{"file_id": fileID}
+	resp, err := c.call(ctx, "getFile", params)
+	if err != nil {
+		return nil, "", err
+	}
+
+	var parsed tgResponse[getFileResult]
+	if err := json.Unmarshal(resp, &parsed); err != nil {
+		return nil, "", err
+	}
+	if !parsed.OK || parsed.Result.FilePath == "" {
+		return nil, "", fmt.Errorf("telegram getFile not ok")
+	}
+
+	fileURL := fmt.Sprintf("https://api.telegram.org/file/bot%s/%s", c.token, parsed.Result.FilePath)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fileURL, nil)
+	if err != nil {
+		return nil, "", err
+	}
+	fileResp, err := c.http.Do(req)
+	if err != nil {
+		return nil, "", err
+	}
+	if fileResp.StatusCode < 200 || fileResp.StatusCode > 299 {
+		defer fileResp.Body.Close()
+		body, _ := io.ReadAll(io.LimitReader(fileResp.Body, 1024))
+		return nil, "", fmt.Errorf("telegram file download status=%d body=%s", fileResp.StatusCode, string(body))
+	}
+
+	return fileResp.Body, path.Base(parsed.Result.FilePath), nil
 }
 
 func (c *Client) getMe(ctx context.Context) (getMeResult, error) {
@@ -151,4 +189,3 @@ func (c *Client) call(ctx context.Context, method string, query map[string]strin
 	}
 	return io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 }
-

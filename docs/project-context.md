@@ -50,6 +50,7 @@ Path: `docs/project-context.md`
 4. Авто-регистрация Telegram групп в `telegram_groups` при update событиях (`message`, `edited_message`, `channel_post`, `my_chat_member`, `chat_member`) для `group/supergroup`.
 5. Быстрое durable enqueue в `delivery_jobs` (через route + dedupe).
 6. Быстрый ответ webhook.
+7. Формат пересылки в MAX: заголовок `"<Telegram chat title> - <Telegram sender>"`, затем текст/подпись; вложения Telegram (photo/document/video/audio/voice/animation) пересылаются как реальные attachments через `POST /uploads` -> `POST /messages`.
 
 ### 3.2 MAX link onboarding
 1. `POST /webhooks/max`.
