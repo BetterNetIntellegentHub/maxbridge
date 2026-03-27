@@ -50,7 +50,7 @@ func (s *AdminService) loadSection(ctx context.Context, section string) (Section
 		}
 		events, _ := s.store.ListRecentEvents(ctx, 8)
 		b := &strings.Builder{}
-		fmt.Fprintf(b, "Группы: %d\nMAX users: %d\nRoutes: %d\nQueue depth: %d\nRetry: %d\nDead-letter: %d\nOldest pending: %ds\n\n",
+		fmt.Fprintf(b, "Группы: %d\nПользователи MAX: %d\nМаршруты: %d\nГлубина очереди: %d\nВ повторе: %d\nВ dead-letter: %d\nВозраст старейшего pending: %ds\n\n",
 			groups, users, routes, queue.PendingDepth, queue.RetryDepth, queue.DeadLetterDepth, queue.OldestPendingAgeS)
 		fmt.Fprintln(b, "Последние события:")
 		for _, e := range events {
@@ -90,19 +90,19 @@ func (s *AdminService) loadSection(ctx context.Context, section string) (Section
 	case "Health Checks":
 		b := &strings.Builder{}
 		if err := s.store.Ping(ctx); err != nil {
-			fmt.Fprintln(b, "DB: FAIL")
+			fmt.Fprintln(b, "БД: ОШИБКА")
 		} else {
-			fmt.Fprintln(b, "DB: OK")
+			fmt.Fprintln(b, "БД: ОК")
 		}
 		if err := s.tg.Ping(ctx); err != nil {
-			fmt.Fprintln(b, "Telegram API: DEGRADED")
+			fmt.Fprintln(b, "Telegram API: ДЕГРАДИРОВАНО")
 		} else {
-			fmt.Fprintln(b, "Telegram API: OK")
+			fmt.Fprintln(b, "Telegram API: ОК")
 		}
 		if err := s.mx.Ping(ctx); err != nil {
-			fmt.Fprintln(b, "MAX API: DEGRADED")
+			fmt.Fprintln(b, "MAX API: ДЕГРАДИРОВАНО")
 		} else {
-			fmt.Fprintln(b, "MAX API: OK")
+			fmt.Fprintln(b, "MAX API: ОК")
 		}
 		return SectionData{Content: b.String()}, nil
 	case "Logs":
@@ -112,7 +112,7 @@ func (s *AdminService) loadSection(ctx context.Context, section string) (Section
 		}
 		return SectionData{Rows: rows}, nil
 	case "Settings":
-		return SectionData{Content: "Settings управляются env/secrets файлами и Ansible.\nИспользуйте docs/operations.md для параметров."}, nil
+		return SectionData{Content: "Настройки управляются env/secrets файлами и Ansible.\nПараметры см. в docs/operations.md."}, nil
 	default:
 		return SectionData{}, nil
 	}
@@ -132,14 +132,14 @@ func (s *AdminService) RenderSection(section string) (string, error) {
 func (s *AdminService) GroupAdd(chatID int64, title string) (string, error) {
 	title = strings.TrimSpace(title)
 	if title == "" {
-		return "", fmt.Errorf("title is required")
+		return "", fmt.Errorf("название обязательно")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), s.timeout)
 	defer cancel()
 	if err := s.store.AddTelegramGroup(ctx, chatID, title); err != nil {
 		return "", err
 	}
-	return "group added", nil
+	return "Группа добавлена.", nil
 }
 
 func (s *AdminService) GroupProbe(chatID int64) (string, error) {
@@ -148,10 +148,10 @@ func (s *AdminService) GroupProbe(chatID int64) (string, error) {
 	res, err := s.tg.ProbeGroup(ctx, chatID)
 	if err != nil {
 		_ = s.store.UpdateGroupReadiness(ctx, chatID, string(domain.GroupBlocked), err.Error())
-		return "probe failed: " + err.Error(), nil
+		return "Проверка неуспешна: " + err.Error(), nil
 	}
 	_ = s.store.UpdateGroupReadiness(ctx, chatID, string(res.Readiness), res.Reason)
-	return fmt.Sprintf("probe=%s reason=%s", res.Readiness, res.Reason), nil
+	return fmt.Sprintf("Проверка: %s, причина: %s", res.Readiness, res.Reason), nil
 }
 
 func (s *AdminService) GroupProbeAll() (string, error) {
@@ -175,7 +175,7 @@ func (s *AdminService) GroupProbeAll() (string, error) {
 		_ = s.store.UpdateGroupReadiness(ctx, chatID, string(res.Readiness), res.Reason)
 		okCount++
 	}
-	return fmt.Sprintf("probeall done, successful probes: %d", okCount), nil
+	return fmt.Sprintf("Проверка всех групп завершена, успешных проверок: %d", okCount), nil
 }
 
 func (s *AdminService) GroupDisable(chatID int64) (string, error) {
@@ -184,14 +184,14 @@ func (s *AdminService) GroupDisable(chatID int64) (string, error) {
 	if err := s.store.RemoveGroup(ctx, chatID); err != nil {
 		return "", err
 	}
-	return "group disabled", nil
+	return "Группа отключена.", nil
 }
 
 func (s *AdminService) GroupDeepLink(botUsername, payload string) (string, error) {
 	botUsername = strings.TrimSpace(botUsername)
 	payload = strings.TrimSpace(payload)
 	if botUsername == "" || payload == "" {
-		return "", fmt.Errorf("bot_username and payload are required")
+		return "", fmt.Errorf("bot_username и payload обязательны")
 	}
 	return s.tg.DeepLinkStartGroup(botUsername, payload), nil
 }
@@ -199,7 +199,7 @@ func (s *AdminService) GroupDeepLink(botUsername, payload string) (string, error
 func (s *AdminService) InviteCreate(scopeType, scopeID, ttlRaw string) (string, error) {
 	ttl, err := time.ParseDuration(strings.TrimSpace(ttlRaw))
 	if err != nil {
-		return "", fmt.Errorf("invalid ttl (example: 24h)")
+		return "", fmt.Errorf("некорректный ttl (пример: 24h)")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), s.timeout)
 	defer cancel()
@@ -213,7 +213,7 @@ func (s *AdminService) InviteCreate(scopeType, scopeID, ttlRaw string) (string, 
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("invite created id=%d expires=%s raw=%s (show once)", out.InviteID, out.Expires.Format(time.RFC3339), out.RawCode), nil
+	return fmt.Sprintf("Инвайт создан: id=%d, истекает=%s, raw=%s (показать один раз)", out.InviteID, out.Expires.Format(time.RFC3339), out.RawCode), nil
 }
 
 func (s *AdminService) InviteRevoke(inviteID int64) (string, error) {
@@ -222,7 +222,7 @@ func (s *AdminService) InviteRevoke(inviteID int64) (string, error) {
 	if err := s.store.RevokeInvite(ctx, inviteID); err != nil {
 		return "", err
 	}
-	return "invite revoked", nil
+	return "Инвайт отозван.", nil
 }
 
 func (s *AdminService) RouteAdd(chatID, maxUserID int64, filterMode string, ignoreBots bool) (string, error) {
@@ -236,7 +236,7 @@ func (s *AdminService) RouteAdd(chatID, maxUserID int64, filterMode string, igno
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("route created id=%d", id), nil
+	return fmt.Sprintf("Маршрут создан: id=%d", id), nil
 }
 
 func (s *AdminService) RoutePause(routeID int64) (string, error) {
@@ -245,7 +245,7 @@ func (s *AdminService) RoutePause(routeID int64) (string, error) {
 	if err := s.store.UpdateRouteState(ctx, routeID, false); err != nil {
 		return "", err
 	}
-	return "route paused", nil
+	return "Маршрут поставлен на паузу.", nil
 }
 
 func (s *AdminService) RouteResume(routeID int64) (string, error) {
@@ -254,7 +254,7 @@ func (s *AdminService) RouteResume(routeID int64) (string, error) {
 	if err := s.store.UpdateRouteState(ctx, routeID, true); err != nil {
 		return "", err
 	}
-	return "route resumed", nil
+	return "Маршрут возобновлён.", nil
 }
 
 func (s *AdminService) RouteDelete(routeID int64) (string, error) {
@@ -263,7 +263,7 @@ func (s *AdminService) RouteDelete(routeID int64) (string, error) {
 	if err := s.store.DeleteRoute(ctx, routeID); err != nil {
 		return "", err
 	}
-	return "route deleted", nil
+	return "Маршрут удалён.", nil
 }
 
 func (s *AdminService) UserBlock(maxUserID int64) (string, error) {
@@ -272,7 +272,7 @@ func (s *AdminService) UserBlock(maxUserID int64) (string, error) {
 	if err := s.store.SetUserBlocked(ctx, maxUserID, true); err != nil {
 		return "", err
 	}
-	return "user blocked", nil
+	return "Пользователь заблокирован.", nil
 }
 
 func (s *AdminService) UserUnblock(maxUserID int64) (string, error) {
@@ -281,7 +281,7 @@ func (s *AdminService) UserUnblock(maxUserID int64) (string, error) {
 	if err := s.store.SetUserBlocked(ctx, maxUserID, false); err != nil {
 		return "", err
 	}
-	return "user unblocked", nil
+	return "Пользователь разблокирован.", nil
 }
 
 func (s *AdminService) UserRemove(maxUserID int64) (string, error) {
@@ -290,16 +290,16 @@ func (s *AdminService) UserRemove(maxUserID int64) (string, error) {
 	if err := s.store.RemoveUser(ctx, maxUserID); err != nil {
 		return "", err
 	}
-	return "user removed", nil
+	return "Пользователь удалён.", nil
 }
 
 func (s *AdminService) UserTest(maxUserID int64) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), s.timeout)
 	defer cancel()
-	if err := s.mx.SendMessage(ctx, maxUserID, "Bridge test send"); err != nil {
-		return "test send failed", err
+	if err := s.mx.SendMessage(ctx, maxUserID, "Тестовое сообщение из MaxBridge"); err != nil {
+		return "Тестовая отправка неуспешна.", err
 	}
-	return "test send success", nil
+	return "Тестовая отправка выполнена успешно.", nil
 }
 
 func (s *AdminService) QueueRetry(jobID int64) (string, error) {
@@ -308,19 +308,19 @@ func (s *AdminService) QueueRetry(jobID int64) (string, error) {
 	if err := s.store.RetryJobNow(ctx, jobID); err != nil {
 		return "", err
 	}
-	return "job scheduled for retry", nil
+	return "Задание поставлено в retry.", nil
 }
 
 func (s *AdminService) QueueClearCompleted(days int) (string, error) {
 	if days < 1 {
-		return "", fmt.Errorf("days must be >= 1")
+		return "", fmt.Errorf("значение days должно быть >= 1")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), s.timeout)
 	defer cancel()
 	if err := s.store.ClearOldCompleted(ctx, days); err != nil {
 		return "", err
 	}
-	return "completed jobs cleanup triggered", nil
+	return "Очистка завершённых заданий запущена.", nil
 }
 
 func normalizeFilterMode(mode string) (string, error) {
@@ -329,7 +329,7 @@ func normalizeFilterMode(mode string) (string, error) {
 	case string(domain.RouteFilterAll), string(domain.RouteFilterTextOnly), string(domain.RouteFilterMentions):
 		return mode, nil
 	default:
-		return "", fmt.Errorf("invalid filter_mode")
+		return "", fmt.Errorf("некорректный filter_mode")
 	}
 }
 
@@ -353,29 +353,29 @@ func (s *AdminService) Exec(raw string) (string, error) {
 	case "user":
 		return s.execUser(parts)
 	default:
-		return "unknown command; use help", nil
+		return "Неизвестная команда, используйте help.", nil
 	}
 }
 
 func (s *AdminService) execGroup(p []string) (string, error) {
 	if len(p) < 3 {
-		return "usage: group <add|probe|probeall|remove|deeplink> ...", nil
+		return "Использование: group <add|probe|probeall|remove|deeplink> ...", nil
 	}
 	switch p[1] {
 	case "add":
 		if len(p) < 4 {
-			return "usage: group add <chat_id> <title>", nil
+			return "Использование: group add <chat_id> <title>", nil
 		}
 		chatID, err := strconv.ParseInt(p[2], 10, 64)
 		if err != nil {
-			return "invalid chat_id", nil
+			return "Некорректный chat_id.", nil
 		}
 		title := strings.Join(p[3:], " ")
 		return s.GroupAdd(chatID, title)
 	case "probe":
 		chatID, err := strconv.ParseInt(p[2], 10, 64)
 		if err != nil {
-			return "invalid chat_id", nil
+			return "Некорректный chat_id.", nil
 		}
 		return s.GroupProbe(chatID)
 	case "probeall":
@@ -383,114 +383,114 @@ func (s *AdminService) execGroup(p []string) (string, error) {
 	case "remove":
 		chatID, err := strconv.ParseInt(p[2], 10, 64)
 		if err != nil {
-			return "invalid chat_id", nil
+			return "Некорректный chat_id.", nil
 		}
 		return s.GroupDisable(chatID)
 	case "deeplink":
 		if len(p) < 4 {
-			return "usage: group deeplink <bot_username> <payload>", nil
+			return "Использование: group deeplink <bot_username> <payload>", nil
 		}
 		return s.GroupDeepLink(p[2], p[3])
 	default:
-		return "unknown group command", nil
+		return "Неизвестная подкоманда group.", nil
 	}
 }
 
 func (s *AdminService) execInvite(p []string) (string, error) {
 	if len(p) < 3 {
-		return "usage: invite <create|revoke> ...", nil
+		return "Использование: invite <create|revoke> ...", nil
 	}
 	switch p[1] {
 	case "create":
 		if len(p) < 5 {
-			return "usage: invite create <group|route|entity> <scope_id> <ttl>", nil
+			return "Использование: invite create <group|route|entity> <scope_id> <ttl>", nil
 		}
 		return s.InviteCreate(p[2], p[3], p[4])
 	case "revoke":
 		id, err := strconv.ParseInt(p[2], 10, 64)
 		if err != nil {
-			return "invalid invite_id", nil
+			return "Некорректный invite_id.", nil
 		}
 		return s.InviteRevoke(id)
 	default:
-		return "unknown invite command", nil
+		return "Неизвестная подкоманда invite.", nil
 	}
 }
 
 func (s *AdminService) execRoute(p []string) (string, error) {
 	if len(p) < 3 {
-		return "usage: route <add|pause|resume|delete> ...", nil
+		return "Использование: route <add|pause|resume|delete> ...", nil
 	}
 	switch p[1] {
 	case "add":
 		if len(p) < 6 {
-			return "usage: route add <chat_id> <max_user_id> <all|text_only|mentions_only> <ignore_bots:true|false>", nil
+			return "Использование: route add <chat_id> <max_user_id> <all|text_only|mentions_only> <ignore_bots:true|false>", nil
 		}
 		chatID, err := strconv.ParseInt(p[2], 10, 64)
 		if err != nil {
-			return "invalid chat_id", nil
+			return "Некорректный chat_id.", nil
 		}
 		userID, err := strconv.ParseInt(p[3], 10, 64)
 		if err != nil {
-			return "invalid max_user_id", nil
+			return "Некорректный max_user_id.", nil
 		}
 		ignore, err := strconv.ParseBool(p[5])
 		if err != nil {
-			return "invalid ignore_bots", nil
+			return "Некорректный ignore_bots.", nil
 		}
 		return s.RouteAdd(chatID, userID, p[4], ignore)
 	case "pause":
 		id, err := strconv.ParseInt(p[2], 10, 64)
 		if err != nil {
-			return "invalid route_id", nil
+			return "Некорректный route_id.", nil
 		}
 		return s.RoutePause(id)
 	case "resume":
 		id, err := strconv.ParseInt(p[2], 10, 64)
 		if err != nil {
-			return "invalid route_id", nil
+			return "Некорректный route_id.", nil
 		}
 		return s.RouteResume(id)
 	case "delete":
 		id, err := strconv.ParseInt(p[2], 10, 64)
 		if err != nil {
-			return "invalid route_id", nil
+			return "Некорректный route_id.", nil
 		}
 		return s.RouteDelete(id)
 	default:
-		return "unknown route command", nil
+		return "Неизвестная подкоманда route.", nil
 	}
 }
 
 func (s *AdminService) execQueue(p []string) (string, error) {
 	if len(p) < 3 {
-		return "usage: queue <retry|clear-completed> ...", nil
+		return "Использование: queue <retry|clear-completed> ...", nil
 	}
 	switch p[1] {
 	case "retry":
 		id, err := strconv.ParseInt(p[2], 10, 64)
 		if err != nil {
-			return "invalid job_id", nil
+			return "Некорректный job_id.", nil
 		}
 		return s.QueueRetry(id)
 	case "clear-completed":
 		days, err := strconv.Atoi(p[2])
 		if err != nil {
-			return "invalid days", nil
+			return "Некорректное значение days.", nil
 		}
 		return s.QueueClearCompleted(days)
 	default:
-		return "unknown queue command", nil
+		return "Неизвестная подкоманда queue.", nil
 	}
 }
 
 func (s *AdminService) execUser(p []string) (string, error) {
 	if len(p) < 3 {
-		return "usage: user <block|unblock|remove|test> ...", nil
+		return "Использование: user <block|unblock|remove|test> ...", nil
 	}
 	id, err := strconv.ParseInt(p[2], 10, 64)
 	if err != nil {
-		return "invalid max_user_id", nil
+		return "Некорректный max_user_id.", nil
 	}
 	switch p[1] {
 	case "block":
@@ -502,13 +502,13 @@ func (s *AdminService) execUser(p []string) (string, error) {
 	case "test":
 		return s.UserTest(id)
 	default:
-		return "unknown user command", nil
+		return "Неизвестная подкоманда user.", nil
 	}
 }
 
 func renderRows(rows []map[string]any) string {
 	if len(rows) == 0 {
-		return "<empty>"
+		return "<пусто>"
 	}
 	b := &strings.Builder{}
 	for _, r := range rows {
@@ -523,7 +523,7 @@ func renderRows(rows []map[string]any) string {
 
 func helpText() string {
 	return strings.TrimSpace(`
-help
+Справка (legacy command mode):
 
 group add <chat_id> <title>
 group probe <chat_id>

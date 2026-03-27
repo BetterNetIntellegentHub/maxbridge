@@ -23,9 +23,9 @@ const backActionID = "__back"
 type rowKind int
 
 const (
-	rowBack rowKind = iota
-	rowRecord
-	rowSectionActions
+	rowRecord rowKind = iota
+	rowSectionAction
+	rowBack
 )
 
 type listEntry struct {
@@ -33,6 +33,7 @@ type listEntry struct {
 	title  string
 	detail string
 	row    map[string]any
+	action menuAction
 }
 
 type formField struct {
@@ -55,12 +56,14 @@ type actionForm struct {
 	fields []formField
 	values []string
 	index  int
+	ret    uiMode
 }
 
 type pendingAction struct {
 	action menuAction
 	entry  listEntry
 	values map[string]string
+	ret    uiMode
 }
 
 type Model struct {
@@ -137,12 +140,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case sectionLoadedMsg:
 		if v.err != nil {
-			m.status = fmt.Sprintf("error: %v", v.err)
+			m.status = fmt.Sprintf("ошибка: %v", v.err)
 			return m, nil
 		}
 		if v.section == m.currentSection {
-			m.sectionContent = v.data.Content
 			m.rows = m.buildEntries(v.section, v.data.Rows)
+			m.sectionContent = strings.TrimSpace(v.data.Content)
+			if m.sectionContent == "" && len(m.rows) == 1 && m.rows[0].kind == rowBack {
+				if v.section == "Dashboard" {
+					m.sectionContent = "Панель пока не вернула данные."
+				} else {
+					m.sectionContent = "В этом разделе пока нет данных."
+				}
+			}
 			if m.rowIndex >= len(m.rows) {
 				m.rowIndex = max(0, len(m.rows)-1)
 			}
@@ -150,7 +160,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case actionDoneMsg:
 		if v.err != nil {
-			m.status = fmt.Sprintf("action error: %v", v.err)
+			m.status = fmt.Sprintf("ошибка действия: %v", v.err)
 		} else {
 			m.status = v.status
 		}
@@ -189,7 +199,7 @@ func (m Model) updateSections(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		}
 		m.currentSection = selected
-		m.sectionContent = ""
+		m.sectionContent = "Загрузка..."
 		m.rows = nil
 		m.rowIndex = 0
 		m.actions = nil
@@ -222,18 +232,22 @@ func (m Model) updateRows(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, m.loadSectionCmd(m.currentSection)
 	case "enter":
 		if len(m.rows) == 0 {
-			m.status = "no items in this section"
+			m.status = "в этом разделе нет пунктов"
 			return m, nil
 		}
 		selected := m.rows[m.rowIndex]
-		if selected.kind == rowBack {
+		switch selected.kind {
+		case rowBack:
 			m.mode = modeSections
 			return m, nil
+		case rowSectionAction:
+			return m.startAction(selected.action, selected)
+		case rowRecord:
+			m.actions = withBackAction(m.buildRowActions(m.currentSection, selected))
+			m.actionIndex = 0
+			m.mode = modeActions
+			return m, nil
 		}
-		m.actions = withBackAction(m.buildActions(m.currentSection, selected))
-		m.actionIndex = 0
-		m.mode = modeActions
-		return m, nil
 	}
 	return m, nil
 }
@@ -266,36 +280,44 @@ func (m Model) updateActions(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.actionIndex = 0
 			return m, nil
 		}
-		entry := m.rows[m.rowIndex]
-		if len(act.fields) > 0 {
-			values := make([]string, len(act.fields))
-			for i, f := range act.fields {
-				values[i] = f.defaultVal
-			}
-			m.form = actionForm{action: act, entry: entry, fields: act.fields, values: values, index: 1}
-			m.mode = modeForm
-			return m, nil
-		}
-		if act.dangerous {
-			m.pending = &pendingAction{action: act, entry: entry, values: map[string]string{}}
-			m.confirmIndex = 0
-			m.mode = modeConfirm
-			return m, nil
-		}
-		m.mode = modeRows
-		m.actions = nil
-		m.actionIndex = 0
-		return m, m.execActionCmd(act, entry, map[string]string{})
+		return m.startAction(act, m.rows[m.rowIndex])
 	}
 	return m, nil
 }
 
+func (m Model) startAction(act menuAction, entry listEntry) (tea.Model, tea.Cmd) {
+	retMode := m.mode
+	if len(act.fields) > 0 {
+		values := make([]string, len(act.fields))
+		for i, f := range act.fields {
+			values[i] = f.defaultVal
+		}
+		m.form = actionForm{action: act, entry: entry, fields: act.fields, values: values, index: 0, ret: retMode}
+		m.mode = modeForm
+		return m, nil
+	}
+	if act.dangerous {
+		m.pending = &pendingAction{action: act, entry: entry, values: map[string]string{}, ret: retMode}
+		m.confirmIndex = 0
+		m.mode = modeConfirm
+		return m, nil
+	}
+	m.mode = modeRows
+	if retMode == modeActions {
+		m.actions = nil
+		m.actionIndex = 0
+	}
+	return m, m.execActionCmd(act, entry, map[string]string{})
+}
+
 func (m Model) updateForm(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	total := len(m.form.fields) + 1
+	backIndex := total - 1
 	switch key.String() {
 	case "esc", "left", "h":
+		backMode := m.form.ret
 		m.form = actionForm{}
-		m.mode = modeActions
+		m.mode = backMode
 		return m, nil
 	case "up", "k", "shift+tab", "backtab":
 		if m.form.index > 0 {
@@ -308,12 +330,13 @@ func (m Model) updateForm(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "enter":
-		if m.form.index == 0 {
+		if m.form.index == backIndex {
+			backMode := m.form.ret
 			m.form = actionForm{}
-			m.mode = modeActions
+			m.mode = backMode
 			return m, nil
 		}
-		if m.form.index < total-1 {
+		if len(m.form.fields) > 0 && m.form.index < len(m.form.fields)-1 {
 			m.form.index++
 			return m, nil
 		}
@@ -324,43 +347,46 @@ func (m Model) updateForm(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		act := m.form.action
 		entry := m.form.entry
+		retMode := m.form.ret
 		m.form = actionForm{}
 		if act.dangerous {
-			m.pending = &pendingAction{action: act, entry: entry, values: values}
+			m.pending = &pendingAction{action: act, entry: entry, values: values, ret: retMode}
 			m.confirmIndex = 0
 			m.mode = modeConfirm
 			return m, nil
 		}
 		m.mode = modeRows
-		m.actions = nil
-		m.actionIndex = 0
+		if retMode == modeActions {
+			m.actions = nil
+			m.actionIndex = 0
+		}
 		return m, m.execActionCmd(act, entry, values)
 	case "backspace":
-		fieldIdx := m.form.index - 1
-		if fieldIdx < 0 || fieldIdx >= len(m.form.values) {
+		if m.form.index >= len(m.form.fields) {
 			return m, nil
 		}
-		if len(m.form.values[fieldIdx]) > 0 {
-			m.form.values[fieldIdx] = m.form.values[fieldIdx][:len(m.form.values[fieldIdx])-1]
+		if len(m.form.values[m.form.index]) > 0 {
+			m.form.values[m.form.index] = m.form.values[m.form.index][:len(m.form.values[m.form.index])-1]
 		}
 		return m, nil
 	default:
-		if key.Type == tea.KeyRunes {
-			fieldIdx := m.form.index - 1
-			if fieldIdx >= 0 && fieldIdx < len(m.form.values) {
-				m.form.values[fieldIdx] += key.String()
-			}
+		if key.Type == tea.KeyRunes && m.form.index < len(m.form.fields) {
+			m.form.values[m.form.index] += key.String()
 		}
 		return m, nil
 	}
 }
 
 func (m Model) updateConfirm(key tea.KeyMsg) (tea.Model, tea.Cmd) {
+	backMode := modeRows
+	if m.pending != nil {
+		backMode = m.pending.ret
+	}
 	switch key.String() {
 	case "esc", "left", "h", "n":
 		m.pending = nil
-		m.mode = modeActions
-		m.confirmIndex = 0
+		m.mode = backMode
+		m.confirmIndex = 1
 		return m, nil
 	case "up", "k":
 		if m.confirmIndex > 0 {
@@ -373,23 +399,25 @@ func (m Model) updateConfirm(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "y":
-		m.confirmIndex = 1
+		m.confirmIndex = 0
 		fallthrough
 	case "enter":
-		if m.confirmIndex == 0 {
+		if m.confirmIndex == 1 {
 			m.pending = nil
-			m.mode = modeActions
+			m.mode = backMode
 			return m, nil
 		}
 		if m.pending == nil {
-			m.mode = modeActions
+			m.mode = modeRows
 			return m, nil
 		}
 		p := *m.pending
 		m.pending = nil
 		m.mode = modeRows
-		m.actions = nil
-		m.actionIndex = 0
+		if p.ret == modeActions {
+			m.actions = nil
+			m.actionIndex = 0
+		}
 		m.confirmIndex = 0
 		return m, m.execActionCmd(p.action, p.entry, p.values)
 	}
@@ -398,82 +426,111 @@ func (m Model) updateConfirm(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m Model) View() string {
 	out := &strings.Builder{}
-	fmt.Fprintln(out, "MAXBridge Operator TUI")
+	fmt.Fprintln(out, "Операторский интерфейс MAXBridge")
 	fmt.Fprintln(out, "====================")
 	fmt.Fprintln(out, "")
 
 	switch m.mode {
 	case modeSections:
-		fmt.Fprintln(out, "Main Menu")
-		fmt.Fprintln(out, "---------")
+		fmt.Fprintln(out, "Главное меню")
+		fmt.Fprintln(out, "------------")
 		for i, s := range m.sections {
-			printMenuLine(out, i == m.index, i+1, s, "")
+			printMenuLine(out, i == m.index, i+1, sectionLabel(s), "")
 		}
 		fmt.Fprintln(out, "")
-		fmt.Fprintln(out, "Enter: open  |  q: quit")
+		fmt.Fprintln(out, "Enter: открыть  |  q: выход")
 	case modeRows:
-		fmt.Fprintf(out, "%s Menu\n", m.currentSection)
-		fmt.Fprintln(out, strings.Repeat("-", len(m.currentSection)+5))
-		if len(m.rows) == 0 {
-			if strings.TrimSpace(m.sectionContent) == "" {
-				fmt.Fprintln(out, "<empty>")
-			} else {
-				fmt.Fprintln(out, m.sectionContent)
-			}
-		} else {
+		fmt.Fprintf(out, "%s\n", sectionLabel(m.currentSection))
+		fmt.Fprintln(out, strings.Repeat("-", len(sectionLabel(m.currentSection))))
+		if strings.TrimSpace(m.sectionContent) != "" {
+			fmt.Fprintln(out, "")
+			fmt.Fprintln(out, m.sectionContent)
+			fmt.Fprintln(out, "")
+		}
+		if len(m.rows) == 0 && strings.TrimSpace(m.sectionContent) == "" {
+			fmt.Fprintln(out, "<пусто>")
+		}
+		if len(m.rows) > 0 {
 			for i, row := range m.rows {
 				printMenuLine(out, i == m.rowIndex, i+1, row.title, row.detail)
 			}
 		}
 		fmt.Fprintln(out, "")
-		fmt.Fprintln(out, "Enter: open/select  |  r: refresh  |  Esc: back")
+		fmt.Fprintln(out, "Enter: открыть/выбрать  |  r: обновить  |  Esc: назад")
 	case modeActions:
 		entry := m.rows[m.rowIndex]
-		fmt.Fprintf(out, "%s Actions\n", m.currentSection)
-		fmt.Fprintln(out, strings.Repeat("-", len(m.currentSection)+8))
-		fmt.Fprintf(out, "Target: %s\n\n", entry.title)
+		fmt.Fprintf(out, "Действия: %s\n", sectionLabel(m.currentSection))
+		fmt.Fprintln(out, strings.Repeat("-", len(sectionLabel(m.currentSection))+10))
+		fmt.Fprintf(out, "Объект: %s\n\n", entry.title)
 		for i, act := range m.actions {
 			detail := ""
 			if act.dangerous {
-				detail = "guarded"
+				detail = "требует подтверждения"
 			}
 			printMenuLine(out, i == m.actionIndex, i+1, act.label, detail)
 		}
 		fmt.Fprintln(out, "")
-		fmt.Fprintln(out, "Enter: choose  |  Esc: back")
+		fmt.Fprintln(out, "Enter: выбрать  |  Esc: назад")
 	case modeForm:
-		fmt.Fprintf(out, "%s Input\n", m.currentSection)
-		fmt.Fprintln(out, strings.Repeat("-", len(m.currentSection)+6))
-		fmt.Fprintf(out, "Action: %s\n\n", m.form.action.label)
-		printMenuLine(out, m.form.index == 0, 1, "Back", "return to action menu")
+		fmt.Fprintf(out, "Ввод параметров: %s\n", m.form.action.label)
+		fmt.Fprintln(out, strings.Repeat("-", len(m.form.action.label)+16))
+		fmt.Fprintln(out, "")
 		for i, f := range m.form.fields {
 			v := m.form.values[i]
 			if v == "" {
 				v = f.placeholder
 			}
 			label := fmt.Sprintf("%s: %s", f.label, v)
-			printMenuLine(out, m.form.index == i+1, i+2, label, "")
+			printMenuLine(out, i == m.form.index, i+1, label, "")
 		}
+		printMenuLine(out, m.form.index == len(m.form.fields), len(m.form.fields)+1, "Назад", "вернуться к действиям")
 		fmt.Fprintln(out, "")
-		fmt.Fprintln(out, "Enter on last field submits  |  Enter on Back returns")
+		fmt.Fprintln(out, "Enter на последнем поле: выполнить")
 	case modeConfirm:
-		fmt.Fprintln(out, "Confirm Operation")
-		fmt.Fprintln(out, "-----------------")
+		fmt.Fprintln(out, "Подтверждение")
+		fmt.Fprintln(out, "------------")
 		if m.pending != nil {
-			fmt.Fprintf(out, "Action: %s\n", m.pending.action.label)
-			fmt.Fprintf(out, "Target: %s\n\n", m.pending.entry.title)
+			fmt.Fprintf(out, "Действие: %s\n", m.pending.action.label)
+			fmt.Fprintf(out, "Объект: %s\n\n", m.pending.entry.title)
 		}
-		printMenuLine(out, m.confirmIndex == 0, 1, "Back", "cancel")
-		printMenuLine(out, m.confirmIndex == 1, 2, "Confirm", "execute now")
+		printMenuLine(out, m.confirmIndex == 0, 1, "Подтвердить", "выполнить сейчас")
+		printMenuLine(out, m.confirmIndex == 1, 2, "Назад", "отмена")
 		fmt.Fprintln(out, "")
-		fmt.Fprintln(out, "Enter: choose  |  y: confirm")
+		fmt.Fprintln(out, "Enter: выбрать  |  y: подтвердить")
 	}
 
 	if m.status != "" {
-		fmt.Fprintf(out, "\nStatus: %s\n", m.status)
+		fmt.Fprintf(out, "\nСтатус: %s\n", m.status)
 	}
 
 	return out.String()
+}
+
+func sectionLabel(key string) string {
+	switch key {
+	case "Dashboard":
+		return "Панель"
+	case "Telegram Groups":
+		return "Группы Telegram"
+	case "MAX Users":
+		return "Пользователи MAX"
+	case "Invites":
+		return "Инвайты"
+	case "Routes":
+		return "Маршруты"
+	case "Delivery Queue":
+		return "Очередь доставки"
+	case "Health Checks":
+		return "Проверки"
+	case "Logs":
+		return "Логи"
+	case "Settings":
+		return "Настройки"
+	case "Exit":
+		return "Выход"
+	default:
+		return key
+	}
 }
 
 func printMenuLine(b *strings.Builder, selected bool, number int, title, detail string) {
@@ -488,20 +545,17 @@ func printMenuLine(b *strings.Builder, selected bool, number int, title, detail 
 }
 
 func withBackAction(actions []menuAction) []menuAction {
-	back := menuAction{id: backActionID, label: "Back"}
-	if len(actions) == 0 {
-		return []menuAction{back}
-	}
+	back := menuAction{id: backActionID, label: "Назад"}
 	out := make([]menuAction, 0, len(actions)+1)
-	out = append(out, back)
 	out = append(out, actions...)
+	out = append(out, back)
 	return out
 }
 
 func (m Model) loadSectionCmd(section string) tea.Cmd {
 	return func() tea.Msg {
 		if m.service == nil {
-			return sectionLoadedMsg{section: section, data: SectionData{Content: "service not configured"}}
+			return sectionLoadedMsg{section: section, data: SectionData{Content: "Сервис не настроен."}}
 		}
 		data, err := m.service.LoadSection(section)
 		return sectionLoadedMsg{section: section, data: data, err: err}
@@ -509,11 +563,9 @@ func (m Model) loadSectionCmd(section string) tea.Cmd {
 }
 
 func (m Model) buildEntries(section string, rows []map[string]any) []listEntry {
-	entries := make([]listEntry, 0, len(rows)+2)
-	entries = append(entries, listEntry{kind: rowBack, title: "Back", detail: "return to main menu"})
-	if hasSectionActions(section) {
-		entries = append(entries, listEntry{kind: rowSectionActions, title: "Section actions", detail: "open operations for this section"})
-	}
+	sectionActions := m.buildSectionActions(section)
+	entries := make([]listEntry, 0, len(rows)+len(sectionActions)+1)
+
 	for _, row := range rows {
 		entries = append(entries, listEntry{
 			kind:   rowRecord,
@@ -522,107 +574,107 @@ func (m Model) buildEntries(section string, rows []map[string]any) []listEntry {
 			row:    row,
 		})
 	}
+
+	for _, act := range sectionActions {
+		entries = append(entries, listEntry{
+			kind:   rowSectionAction,
+			title:  act.label,
+			detail: "действие раздела",
+			action: act,
+		})
+	}
+
+	entries = append(entries, listEntry{kind: rowBack, title: "Назад", detail: "вернуться в главное меню"})
 	return entries
 }
 
-func hasSectionActions(section string) bool {
-	switch section {
-	case "Telegram Groups", "Invites", "Routes", "Delivery Queue":
-		return true
-	default:
-		return false
-	}
-}
-
-func (m Model) buildActions(section string, entry listEntry) []menuAction {
-	if entry.kind == rowSectionActions {
-		switch section {
-		case "Telegram Groups":
-			return []menuAction{
-				{
-					id:    "group_add",
-					label: "Add group",
-					fields: []formField{
-						{key: "chat_id", label: "Chat ID", placeholder: "-1001234567890"},
-						{key: "title", label: "Title", placeholder: "Operations group"},
-					},
-				},
-				{id: "group_probe_all", label: "Probe all groups"},
-			}
-		case "Invites":
-			return []menuAction{
-				{
-					id:    "invite_create",
-					label: "Create invite",
-					fields: []formField{
-						{key: "scope_type", label: "Scope type", placeholder: "group|route|entity", defaultVal: "group"},
-						{key: "scope_id", label: "Scope ID", placeholder: "123"},
-						{key: "ttl", label: "TTL", placeholder: "24h", defaultVal: "24h"},
-					},
-				},
-			}
-		case "Routes":
-			return []menuAction{
-				{
-					id:    "route_add",
-					label: "Add route",
-					fields: []formField{
-						{key: "chat_id", label: "Chat ID", placeholder: "-1001234567890"},
-						{key: "max_user_id", label: "MAX User ID", placeholder: "10001"},
-						{key: "filter_mode", label: "Filter mode", placeholder: "all|text_only|mentions_only", defaultVal: "all"},
-						{key: "ignore_bots", label: "Ignore bots", placeholder: "true|false", defaultVal: "true"},
-					},
-				},
-			}
-		case "Delivery Queue":
-			return []menuAction{
-				{
-					id:        "queue_clear_completed",
-					label:     "Clear completed jobs",
-					dangerous: true,
-					fields: []formField{
-						{key: "days", label: "Older than days", placeholder: "7", defaultVal: "7"},
-					},
-				},
-			}
-		default:
-			return nil
-		}
-	}
-
+func (m Model) buildSectionActions(section string) []menuAction {
 	switch section {
 	case "Telegram Groups":
 		return []menuAction{
-			{id: "group_probe", label: "Probe group"},
 			{
-				id:    "group_deeplink",
-				label: "Generate deeplink",
+				id:    "group_add",
+				label: "Добавить группу",
 				fields: []formField{
-					{key: "bot_username", label: "Bot username", placeholder: "my_maxbridge_bot"},
-					{key: "payload", label: "Payload", placeholder: "invite_code"},
+					{key: "chat_id", label: "ID чата", placeholder: "-1001234567890"},
+					{key: "title", label: "Название", placeholder: "Операционная группа"},
 				},
 			},
-			{id: "group_disable", label: "Disable group", dangerous: true},
-		}
-	case "MAX Users":
-		return []menuAction{
-			{id: "user_block", label: "Block user"},
-			{id: "user_unblock", label: "Unblock user"},
-			{id: "user_test", label: "Send test message"},
-			{id: "user_remove", label: "Remove user", dangerous: true},
+			{id: "group_probe_all", label: "Проверить все группы"},
 		}
 	case "Invites":
 		return []menuAction{
-			{id: "invite_revoke", label: "Revoke invite", dangerous: true},
+			{
+				id:    "invite_create",
+				label: "Создать инвайт",
+				fields: []formField{
+					{key: "scope_type", label: "Тип области", placeholder: "group|route|entity", defaultVal: "group"},
+					{key: "scope_id", label: "ID области", placeholder: "123"},
+					{key: "ttl", label: "TTL", placeholder: "24h", defaultVal: "24h"},
+				},
+			},
 		}
 	case "Routes":
 		return []menuAction{
-			{id: "route_pause", label: "Pause route"},
-			{id: "route_resume", label: "Resume route"},
-			{id: "route_delete", label: "Delete route", dangerous: true},
+			{
+				id:    "route_add",
+				label: "Добавить маршрут",
+				fields: []formField{
+					{key: "chat_id", label: "ID чата", placeholder: "-1001234567890"},
+					{key: "max_user_id", label: "ID пользователя MAX", placeholder: "10001"},
+					{key: "filter_mode", label: "Фильтр", placeholder: "all|text_only|mentions_only", defaultVal: "all"},
+					{key: "ignore_bots", label: "Игнорировать ботов", placeholder: "true|false", defaultVal: "true"},
+				},
+			},
 		}
 	case "Delivery Queue":
-		return []menuAction{{id: "queue_retry", label: "Retry now"}}
+		return []menuAction{
+			{
+				id:        "queue_clear_completed",
+				label:     "Очистить завершённые задания",
+				dangerous: true,
+				fields: []formField{
+					{key: "days", label: "Старше дней", placeholder: "7", defaultVal: "7"},
+				},
+			},
+		}
+	default:
+		return nil
+	}
+}
+
+func (m Model) buildRowActions(section string, entry listEntry) []menuAction {
+	switch section {
+	case "Telegram Groups":
+		return []menuAction{
+			{id: "group_probe", label: "Проверить группу"},
+			{
+				id:    "group_deeplink",
+				label: "Сформировать ссылку",
+				fields: []formField{
+					{key: "bot_username", label: "Имя бота", placeholder: "my_maxbridge_bot"},
+					{key: "payload", label: "Полезная нагрузка", placeholder: "invite_code"},
+				},
+			},
+			{id: "group_disable", label: "Отключить группу", dangerous: true},
+		}
+	case "MAX Users":
+		return []menuAction{
+			{id: "user_block", label: "Заблокировать пользователя"},
+			{id: "user_unblock", label: "Разблокировать пользователя"},
+			{id: "user_test", label: "Отправить тест"},
+			{id: "user_remove", label: "Удалить пользователя", dangerous: true},
+		}
+	case "Invites":
+		return []menuAction{{id: "invite_revoke", label: "Отозвать инвайт", dangerous: true}}
+	case "Routes":
+		return []menuAction{
+			{id: "route_pause", label: "Поставить на паузу"},
+			{id: "route_resume", label: "Возобновить"},
+			{id: "route_delete", label: "Удалить маршрут", dangerous: true},
+		}
+	case "Delivery Queue":
+		return []menuAction{{id: "queue_retry", label: "Повторить доставку"}}
 	default:
 		return nil
 	}
@@ -632,7 +684,7 @@ func (m Model) execActionCmd(action menuAction, entry listEntry, values map[stri
 	section := m.currentSection
 	return func() tea.Msg {
 		if m.service == nil {
-			return actionDoneMsg{status: "service not configured"}
+			return actionDoneMsg{status: "Сервис не настроен."}
 		}
 		status, err := m.executeAction(section, action.id, entry, values)
 		return actionDoneMsg{status: status, err: err}
@@ -683,7 +735,7 @@ func (m Model) executeAction(section, actionID string, entry listEntry, values m
 		}
 		ignoreBots, err := strconv.ParseBool(strings.TrimSpace(values["ignore_bots"]))
 		if err != nil {
-			return "", fmt.Errorf("invalid ignore_bots")
+			return "", fmt.Errorf("некорректное значение ignore_bots")
 		}
 		return svc.RouteAdd(chatID, userID, strings.TrimSpace(values["filter_mode"]), ignoreBots)
 	case "route_pause":
@@ -737,50 +789,50 @@ func (m Model) executeAction(section, actionID string, entry listEntry, values m
 	case "queue_clear_completed":
 		days, err := strconv.Atoi(strings.TrimSpace(values["days"]))
 		if err != nil {
-			return "", fmt.Errorf("invalid days")
+			return "", fmt.Errorf("некорректное значение дней")
 		}
 		return svc.QueueClearCompleted(days)
 	default:
-		return "", fmt.Errorf("unknown action for %s: %s", section, actionID)
+		return "", fmt.Errorf("неизвестное действие для %s: %s", section, actionID)
 	}
 }
 
 func formatRowTitle(section string, row map[string]any) string {
 	switch section {
 	case "Telegram Groups":
-		return fmt.Sprintf("chat=%v | %v", row["chat_id"], row["title"])
+		return fmt.Sprintf("Чат %v | %v", row["chat_id"], row["title"])
 	case "MAX Users":
-		return fmt.Sprintf("max_user_id=%v", row["max_user_id"])
+		return fmt.Sprintf("Пользователь MAX %v", row["max_user_id"])
 	case "Invites":
-		return fmt.Sprintf("invite id=%v | scope=%v", row["id"], row["scope"])
+		return fmt.Sprintf("Инвайт %v | %v", row["id"], row["scope"])
 	case "Routes":
-		return fmt.Sprintf("route id=%v | chat=%v -> user=%v", row["id"], row["chat_id"], row["max_user_id"])
+		return fmt.Sprintf("Маршрут %v | чат %v -> пользователь %v", row["id"], row["chat_id"], row["max_user_id"])
 	case "Delivery Queue":
-		return fmt.Sprintf("job id=%v | status=%v", row["id"], row["status"])
+		return fmt.Sprintf("Задание %v | статус %v", row["id"], row["status"])
 	case "Logs":
 		return fmt.Sprintf("[%v] %v", row["level"], row["message"])
 	default:
 		if id, ok := row["id"]; ok {
-			return fmt.Sprintf("id=%v", id)
+			return fmt.Sprintf("ID=%v", id)
 		}
-		return fmt.Sprintf("item=%v", row)
+		return fmt.Sprintf("Элемент=%v", row)
 	}
 }
 
 func formatRowDetail(section string, row map[string]any) string {
 	switch section {
 	case "Telegram Groups":
-		return fmt.Sprintf("id=%v readiness=%v enabled=%v", row["id"], row["readiness"], row["enabled"])
+		return fmt.Sprintf("ID=%v готовность=%v включена=%v", row["id"], row["readiness"], row["enabled"])
 	case "MAX Users":
-		return fmt.Sprintf("blocked=%v last=%v", row["blocked"], row["last"])
+		return fmt.Sprintf("заблокирован=%v последнее=%v", row["blocked"], row["last"])
 	case "Invites":
-		return fmt.Sprintf("expires_at=%v revoked_at=%v used_at=%v", row["expires_at"], row["revoked_at"], row["used_at"])
+		return fmt.Sprintf("до=%v отозван=%v использован=%v", row["expires_at"], row["revoked_at"], row["used_at"])
 	case "Routes":
-		return fmt.Sprintf("enabled=%v filter=%v ignore_bots=%v", row["enabled"], row["filter"], row["ignore_bots"])
+		return fmt.Sprintf("включен=%v фильтр=%v игнор_ботов=%v", row["enabled"], row["filter"], row["ignore_bots"])
 	case "Delivery Queue":
-		return fmt.Sprintf("attempts=%v/%v available_at=%v", row["attempts"], row["max_attempts"], row["available_at"])
+		return fmt.Sprintf("попытки=%v/%v доступно=%v", row["attempts"], row["max_attempts"], row["available_at"])
 	case "Logs":
-		return fmt.Sprintf("source=%v created_at=%v", row["source"], row["created_at"])
+		return fmt.Sprintf("источник=%v время=%v", row["source"], row["created_at"])
 	default:
 		return ""
 	}
@@ -788,11 +840,11 @@ func formatRowDetail(section string, row map[string]any) string {
 
 func intFromRow(row map[string]any, key string) (int64, error) {
 	if row == nil {
-		return 0, fmt.Errorf("missing row")
+		return 0, fmt.Errorf("отсутствуют данные строки")
 	}
 	v, ok := row[key]
 	if !ok {
-		return 0, fmt.Errorf("missing %s", key)
+		return 0, fmt.Errorf("поле %s отсутствует", key)
 	}
 	switch t := v.(type) {
 	case int64:
@@ -806,14 +858,14 @@ func intFromRow(row map[string]any, key string) (int64, error) {
 	case string:
 		return parseInt64(t, key)
 	default:
-		return 0, fmt.Errorf("invalid %s", key)
+		return 0, fmt.Errorf("некорректное поле %s", key)
 	}
 }
 
 func parseInt64(raw, field string) (int64, error) {
 	v, err := strconv.ParseInt(strings.TrimSpace(raw), 10, 64)
 	if err != nil {
-		return 0, fmt.Errorf("invalid %s", field)
+		return 0, fmt.Errorf("некорректное значение %s", field)
 	}
 	return v, nil
 }

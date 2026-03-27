@@ -92,7 +92,7 @@ func TestEnterOnRowOpensActionMenu(t *testing.T) {
 	}
 }
 
-func TestRowsListStartsWithBack(t *testing.T) {
+func TestRowsListEndsWithBack(t *testing.T) {
 	m := NewModel(nil)
 	rows := []map[string]any{{"max_user_id": int64(1)}}
 
@@ -100,8 +100,22 @@ func TestRowsListStartsWithBack(t *testing.T) {
 	if len(entries) == 0 {
 		t.Fatalf("expected entries")
 	}
-	if entries[0].kind != rowBack {
-		t.Fatalf("expected first entry to be Back")
+	if entries[len(entries)-1].kind != rowBack {
+		t.Fatalf("expected last entry to be Back")
+	}
+}
+
+func TestBuildEntriesIncludeSectionActionAndBack(t *testing.T) {
+	m := NewModel(nil)
+	entries := m.buildEntries("Invites", nil)
+	if len(entries) != 2 {
+		t.Fatalf("expected 2 entries (section action + back), got %d", len(entries))
+	}
+	if entries[0].kind != rowSectionAction || entries[0].action.id != "invite_create" {
+		t.Fatalf("expected invite_create section action as first entry")
+	}
+	if entries[1].kind != rowBack {
+		t.Fatalf("expected back as last entry")
 	}
 }
 
@@ -121,9 +135,9 @@ func TestEnterOnRowsBackReturnsToSections(t *testing.T) {
 	}
 }
 
-func TestActionsListStartsWithBack(t *testing.T) {
+func TestActionsListEndsWithBack(t *testing.T) {
 	m := NewModel(nil)
-	actions := m.buildActions("MAX Users", listEntry{
+	actions := m.buildRowActions("MAX Users", listEntry{
 		kind: rowRecord,
 		row:  map[string]any{"max_user_id": int64(1)},
 	})
@@ -131,7 +145,52 @@ func TestActionsListStartsWithBack(t *testing.T) {
 	if len(withBack) == 0 {
 		t.Fatalf("expected actions")
 	}
-	if withBack[0].id != backActionID {
-		t.Fatalf("expected first action to be Back")
+	if withBack[len(withBack)-1].id != backActionID {
+		t.Fatalf("expected last action to be Back")
+	}
+}
+
+func TestSectionActionOpensFormDirectlyFromRows(t *testing.T) {
+	m := NewModel(nil)
+	m.mode = modeRows
+	m.currentSection = "Invites"
+	m.rows = []listEntry{
+		{
+			kind:   rowSectionAction,
+			title:  "Создать инвайт",
+			action: m.buildSectionActions("Invites")[0],
+		},
+		{kind: rowBack, title: "Назад"},
+	}
+
+	next, cmd := applyKey(m, tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd != nil {
+		t.Fatalf("expected no async command when opening section action form")
+	}
+	if next.mode != modeForm {
+		t.Fatalf("expected modeForm, got %v", next.mode)
+	}
+	if next.form.action.id != "invite_create" {
+		t.Fatalf("expected invite_create action, got %q", next.form.action.id)
+	}
+}
+
+func TestSectionActionFormEscReturnsToRows(t *testing.T) {
+	m := NewModel(nil)
+	action := m.buildSectionActions("Invites")[0]
+	m.mode = modeForm
+	m.form = actionForm{
+		action: action,
+		fields: action.fields,
+		values: []string{"group", "1", "24h"},
+		ret:    modeRows,
+	}
+
+	next, cmd := applyKey(m, tea.KeyMsg{Type: tea.KeyEsc})
+	if cmd != nil {
+		t.Fatalf("expected no async command on form back")
+	}
+	if next.mode != modeRows {
+		t.Fatalf("expected return to modeRows, got %v", next.mode)
 	}
 }
