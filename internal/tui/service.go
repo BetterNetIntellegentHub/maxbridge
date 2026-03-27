@@ -1,4 +1,4 @@
-﻿package tui
+package tui
 
 import (
 	"context"
@@ -14,31 +14,39 @@ import (
 	"maxbridge/internal/telegram"
 )
 
+type SectionData struct {
+	Rows    []map[string]any
+	Content string
+}
+
 type AdminService struct {
-	store    *storage.Store
-	tg       *telegram.Client
-	mx       *maxapi.Client
-	invites  *invites.Service
-	timeout  time.Duration
+	store   *storage.Store
+	tg      *telegram.Client
+	mx      *maxapi.Client
+	invites *invites.Service
+	timeout time.Duration
 }
 
 func NewAdminService(store *storage.Store, tg *telegram.Client, mx *maxapi.Client, inv *invites.Service) *AdminService {
 	return &AdminService{store: store, tg: tg, mx: mx, invites: inv, timeout: 5 * time.Second}
 }
 
-func (s *AdminService) RenderSection(section string) (string, error) {
+func (s *AdminService) LoadSection(section string) (SectionData, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), s.timeout)
 	defer cancel()
+	return s.loadSection(ctx, section)
+}
 
+func (s *AdminService) loadSection(ctx context.Context, section string) (SectionData, error) {
 	switch section {
 	case "Dashboard":
 		groups, users, routes, err := s.store.CountCore(ctx)
 		if err != nil {
-			return "", err
+			return SectionData{}, err
 		}
 		queue, err := s.store.GetQueueStats(ctx)
 		if err != nil {
-			return "", err
+			return SectionData{}, err
 		}
 		events, _ := s.store.ListRecentEvents(ctx, 8)
 		b := &strings.Builder{}
@@ -48,37 +56,37 @@ func (s *AdminService) RenderSection(section string) (string, error) {
 		for _, e := range events {
 			fmt.Fprintf(b, "- [%v] %v: %v\n", e["level"], e["source"], e["message"])
 		}
-		return b.String(), nil
+		return SectionData{Content: b.String()}, nil
 	case "Telegram Groups":
 		rows, err := s.store.ListTelegramGroups(ctx)
 		if err != nil {
-			return "", err
+			return SectionData{}, err
 		}
-		return renderRows(rows), nil
+		return SectionData{Rows: rows}, nil
 	case "MAX Users":
 		rows, err := s.store.ListMaxUsers(ctx)
 		if err != nil {
-			return "", err
+			return SectionData{}, err
 		}
-		return renderRows(rows), nil
+		return SectionData{Rows: rows}, nil
 	case "Invites":
 		rows, err := s.store.ListInvites(ctx)
 		if err != nil {
-			return "", err
+			return SectionData{}, err
 		}
-		return renderRows(rows), nil
+		return SectionData{Rows: rows}, nil
 	case "Routes":
 		rows, err := s.store.ListRoutes(ctx)
 		if err != nil {
-			return "", err
+			return SectionData{}, err
 		}
-		return renderRows(rows), nil
+		return SectionData{Rows: rows}, nil
 	case "Delivery Queue":
 		rows, err := s.store.ListQueue(ctx, "", 200)
 		if err != nil {
-			return "", err
+			return SectionData{}, err
 		}
-		return renderRows(rows), nil
+		return SectionData{Rows: rows}, nil
 	case "Health Checks":
 		b := &strings.Builder{}
 		if err := s.store.Ping(ctx); err != nil {
@@ -96,17 +104,232 @@ func (s *AdminService) RenderSection(section string) (string, error) {
 		} else {
 			fmt.Fprintln(b, "MAX API: OK")
 		}
-		return b.String(), nil
+		return SectionData{Content: b.String()}, nil
 	case "Logs":
 		rows, err := s.store.ListRecentEvents(ctx, 100)
 		if err != nil {
-			return "", err
+			return SectionData{}, err
 		}
-		return renderRows(rows), nil
+		return SectionData{Rows: rows}, nil
 	case "Settings":
-		return "Settings управляются env/secrets файлами и Ansible.\nИспользуйте docs/operations.md для параметров.", nil
+		return SectionData{Content: "Settings управляются env/secrets файлами и Ansible.\nИспользуйте docs/operations.md для параметров."}, nil
 	default:
-		return "", nil
+		return SectionData{}, nil
+	}
+}
+
+func (s *AdminService) RenderSection(section string) (string, error) {
+	data, err := s.LoadSection(section)
+	if err != nil {
+		return "", err
+	}
+	if len(data.Rows) > 0 {
+		return renderRows(data.Rows), nil
+	}
+	return data.Content, nil
+}
+
+func (s *AdminService) GroupAdd(chatID int64, title string) (string, error) {
+	title = strings.TrimSpace(title)
+	if title == "" {
+		return "", fmt.Errorf("title is required")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), s.timeout)
+	defer cancel()
+	if err := s.store.AddTelegramGroup(ctx, chatID, title); err != nil {
+		return "", err
+	}
+	return "group added", nil
+}
+
+func (s *AdminService) GroupProbe(chatID int64) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), s.timeout)
+	defer cancel()
+	res, err := s.tg.ProbeGroup(ctx, chatID)
+	if err != nil {
+		_ = s.store.UpdateGroupReadiness(ctx, chatID, string(domain.GroupBlocked), err.Error())
+		return "probe failed: " + err.Error(), nil
+	}
+	_ = s.store.UpdateGroupReadiness(ctx, chatID, string(res.Readiness), res.Reason)
+	return fmt.Sprintf("probe=%s reason=%s", res.Readiness, res.Reason), nil
+}
+
+func (s *AdminService) GroupProbeAll() (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), s.timeout)
+	defer cancel()
+	groups, err := s.store.ListTelegramGroups(ctx)
+	if err != nil {
+		return "", err
+	}
+	okCount := 0
+	for _, g := range groups {
+		chatID, ok := g["chat_id"].(int64)
+		if !ok {
+			continue
+		}
+		res, probeErr := s.tg.ProbeGroup(ctx, chatID)
+		if probeErr != nil {
+			_ = s.store.UpdateGroupReadiness(ctx, chatID, string(domain.GroupBlocked), probeErr.Error())
+			continue
+		}
+		_ = s.store.UpdateGroupReadiness(ctx, chatID, string(res.Readiness), res.Reason)
+		okCount++
+	}
+	return fmt.Sprintf("probeall done, successful probes: %d", okCount), nil
+}
+
+func (s *AdminService) GroupDisable(chatID int64) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), s.timeout)
+	defer cancel()
+	if err := s.store.RemoveGroup(ctx, chatID); err != nil {
+		return "", err
+	}
+	return "group disabled", nil
+}
+
+func (s *AdminService) GroupDeepLink(botUsername, payload string) (string, error) {
+	botUsername = strings.TrimSpace(botUsername)
+	payload = strings.TrimSpace(payload)
+	if botUsername == "" || payload == "" {
+		return "", fmt.Errorf("bot_username and payload are required")
+	}
+	return s.tg.DeepLinkStartGroup(botUsername, payload), nil
+}
+
+func (s *AdminService) InviteCreate(scopeType, scopeID, ttlRaw string) (string, error) {
+	ttl, err := time.ParseDuration(strings.TrimSpace(ttlRaw))
+	if err != nil {
+		return "", fmt.Errorf("invalid ttl (example: 24h)")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), s.timeout)
+	defer cancel()
+	out, err := s.invites.CreateInvite(ctx, invites.CreateInviteInput{
+		ScopeType: strings.TrimSpace(scopeType),
+		ScopeID:   strings.TrimSpace(scopeID),
+		TTL:       ttl,
+		SingleUse: true,
+		Metadata:  map[string]any{"created_by": "tui"},
+	})
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("invite created id=%d expires=%s raw=%s (show once)", out.InviteID, out.Expires.Format(time.RFC3339), out.RawCode), nil
+}
+
+func (s *AdminService) InviteRevoke(inviteID int64) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), s.timeout)
+	defer cancel()
+	if err := s.store.RevokeInvite(ctx, inviteID); err != nil {
+		return "", err
+	}
+	return "invite revoked", nil
+}
+
+func (s *AdminService) RouteAdd(chatID, maxUserID int64, filterMode string, ignoreBots bool) (string, error) {
+	mode, err := normalizeFilterMode(filterMode)
+	if err != nil {
+		return "", err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), s.timeout)
+	defer cancel()
+	id, err := s.store.CreateRoute(ctx, chatID, maxUserID, mode, ignoreBots)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("route created id=%d", id), nil
+}
+
+func (s *AdminService) RoutePause(routeID int64) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), s.timeout)
+	defer cancel()
+	if err := s.store.UpdateRouteState(ctx, routeID, false); err != nil {
+		return "", err
+	}
+	return "route paused", nil
+}
+
+func (s *AdminService) RouteResume(routeID int64) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), s.timeout)
+	defer cancel()
+	if err := s.store.UpdateRouteState(ctx, routeID, true); err != nil {
+		return "", err
+	}
+	return "route resumed", nil
+}
+
+func (s *AdminService) RouteDelete(routeID int64) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), s.timeout)
+	defer cancel()
+	if err := s.store.DeleteRoute(ctx, routeID); err != nil {
+		return "", err
+	}
+	return "route deleted", nil
+}
+
+func (s *AdminService) UserBlock(maxUserID int64) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), s.timeout)
+	defer cancel()
+	if err := s.store.SetUserBlocked(ctx, maxUserID, true); err != nil {
+		return "", err
+	}
+	return "user blocked", nil
+}
+
+func (s *AdminService) UserUnblock(maxUserID int64) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), s.timeout)
+	defer cancel()
+	if err := s.store.SetUserBlocked(ctx, maxUserID, false); err != nil {
+		return "", err
+	}
+	return "user unblocked", nil
+}
+
+func (s *AdminService) UserRemove(maxUserID int64) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), s.timeout)
+	defer cancel()
+	if err := s.store.RemoveUser(ctx, maxUserID); err != nil {
+		return "", err
+	}
+	return "user removed", nil
+}
+
+func (s *AdminService) UserTest(maxUserID int64) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), s.timeout)
+	defer cancel()
+	if err := s.mx.SendMessage(ctx, maxUserID, "Bridge test send"); err != nil {
+		return "test send failed", err
+	}
+	return "test send success", nil
+}
+
+func (s *AdminService) QueueRetry(jobID int64) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), s.timeout)
+	defer cancel()
+	if err := s.store.RetryJobNow(ctx, jobID); err != nil {
+		return "", err
+	}
+	return "job scheduled for retry", nil
+}
+
+func (s *AdminService) QueueClearCompleted(days int) (string, error) {
+	if days < 1 {
+		return "", fmt.Errorf("days must be >= 1")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), s.timeout)
+	defer cancel()
+	if err := s.store.ClearOldCompleted(ctx, days); err != nil {
+		return "", err
+	}
+	return "completed jobs cleanup triggered", nil
+}
+
+func normalizeFilterMode(mode string) (string, error) {
+	mode = strings.TrimSpace(mode)
+	switch mode {
+	case string(domain.RouteFilterAll), string(domain.RouteFilterTextOnly), string(domain.RouteFilterMentions):
+		return mode, nil
+	default:
+		return "", fmt.Errorf("invalid filter_mode")
 	}
 }
 
@@ -115,30 +338,28 @@ func (s *AdminService) Exec(raw string) (string, error) {
 	if len(parts) == 0 {
 		return "", nil
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), s.timeout)
-	defer cancel()
 
 	switch parts[0] {
 	case "help":
 		return helpText(), nil
 	case "group":
-		return s.execGroup(ctx, parts)
+		return s.execGroup(parts)
 	case "invite":
-		return s.execInvite(ctx, parts)
+		return s.execInvite(parts)
 	case "route":
-		return s.execRoute(ctx, parts)
+		return s.execRoute(parts)
 	case "queue":
-		return s.execQueue(ctx, parts)
+		return s.execQueue(parts)
 	case "user":
-		return s.execUser(ctx, parts)
+		return s.execUser(parts)
 	default:
 		return "unknown command; use help", nil
 	}
 }
 
-func (s *AdminService) execGroup(ctx context.Context, p []string) (string, error) {
+func (s *AdminService) execGroup(p []string) (string, error) {
 	if len(p) < 3 {
-		return "usage: group <add|probe|probeall|remove> ...", nil
+		return "usage: group <add|probe|probeall|remove|deeplink> ...", nil
 	}
 	switch p[1] {
 	case "add":
@@ -150,59 +371,32 @@ func (s *AdminService) execGroup(ctx context.Context, p []string) (string, error
 			return "invalid chat_id", nil
 		}
 		title := strings.Join(p[3:], " ")
-		if err := s.store.AddTelegramGroup(ctx, chatID, title); err != nil {
-			return "", err
-		}
-		return "group added", nil
+		return s.GroupAdd(chatID, title)
 	case "probe":
 		chatID, err := strconv.ParseInt(p[2], 10, 64)
 		if err != nil {
 			return "invalid chat_id", nil
 		}
-		res, err := s.tg.ProbeGroup(ctx, chatID)
-		if err != nil {
-			_ = s.store.UpdateGroupReadiness(ctx, chatID, string(domain.GroupBlocked), err.Error())
-			return "probe failed: " + err.Error(), nil
-		}
-		_ = s.store.UpdateGroupReadiness(ctx, chatID, string(res.Readiness), res.Reason)
-		return fmt.Sprintf("probe=%s reason=%s", res.Readiness, res.Reason), nil
+		return s.GroupProbe(chatID)
 	case "probeall":
-		groups, err := s.store.ListTelegramGroups(ctx)
-		if err != nil {
-			return "", err
-		}
-		okCount := 0
-		for _, g := range groups {
-			chatID, _ := g["chat_id"].(int64)
-			res, probeErr := s.tg.ProbeGroup(ctx, chatID)
-			if probeErr != nil {
-				_ = s.store.UpdateGroupReadiness(ctx, chatID, string(domain.GroupBlocked), probeErr.Error())
-				continue
-			}
-			_ = s.store.UpdateGroupReadiness(ctx, chatID, string(res.Readiness), res.Reason)
-			okCount++
-		}
-		return fmt.Sprintf("probeall done, successful probes: %d", okCount), nil
+		return s.GroupProbeAll()
 	case "remove":
 		chatID, err := strconv.ParseInt(p[2], 10, 64)
 		if err != nil {
 			return "invalid chat_id", nil
 		}
-		if err := s.store.RemoveGroup(ctx, chatID); err != nil {
-			return "", err
-		}
-		return "group disabled", nil
+		return s.GroupDisable(chatID)
 	case "deeplink":
 		if len(p) < 4 {
 			return "usage: group deeplink <bot_username> <payload>", nil
 		}
-		return s.tg.DeepLinkStartGroup(p[2], p[3]), nil
+		return s.GroupDeepLink(p[2], p[3])
 	default:
 		return "unknown group command", nil
 	}
 }
 
-func (s *AdminService) execInvite(ctx context.Context, p []string) (string, error) {
+func (s *AdminService) execInvite(p []string) (string, error) {
 	if len(p) < 3 {
 		return "usage: invite <create|revoke> ...", nil
 	}
@@ -211,39 +405,19 @@ func (s *AdminService) execInvite(ctx context.Context, p []string) (string, erro
 		if len(p) < 5 {
 			return "usage: invite create <group|route|entity> <scope_id> <ttl>", nil
 		}
-		ttl, err := time.ParseDuration(p[4])
-		if err != nil {
-			return "invalid ttl (example: 24h)", nil
-		}
-		out, err := s.invites.CreateInvite(ctx, invites.CreateInviteInput{
-			ScopeType: p[2],
-			ScopeID:   p[3],
-			TTL:       ttl,
-			SingleUse: true,
-			Metadata:  map[string]any{"created_by": "tui"},
-		})
-		if err != nil {
-			return "", err
-		}
-		return fmt.Sprintf("invite created id=%d expires=%s raw=%s (show once)", out.InviteID, out.Expires.Format(time.RFC3339), out.RawCode), nil
+		return s.InviteCreate(p[2], p[3], p[4])
 	case "revoke":
-		if len(p) < 3 {
-			return "usage: invite revoke <invite_id>", nil
-		}
 		id, err := strconv.ParseInt(p[2], 10, 64)
 		if err != nil {
 			return "invalid invite_id", nil
 		}
-		if err := s.store.RevokeInvite(ctx, id); err != nil {
-			return "", err
-		}
-		return "invite revoked", nil
+		return s.InviteRevoke(id)
 	default:
 		return "unknown invite command", nil
 	}
 }
 
-func (s *AdminService) execRoute(ctx context.Context, p []string) (string, error) {
+func (s *AdminService) execRoute(p []string) (string, error) {
 	if len(p) < 3 {
 		return "usage: route <add|pause|resume|delete> ...", nil
 	}
@@ -264,35 +438,31 @@ func (s *AdminService) execRoute(ctx context.Context, p []string) (string, error
 		if err != nil {
 			return "invalid ignore_bots", nil
 		}
-		id, err := s.store.CreateRoute(ctx, chatID, userID, p[4], ignore)
-		if err != nil {
-			return "", err
-		}
-		return fmt.Sprintf("route created id=%d", id), nil
+		return s.RouteAdd(chatID, userID, p[4], ignore)
 	case "pause":
-		id, _ := strconv.ParseInt(p[2], 10, 64)
-		if err := s.store.UpdateRouteState(ctx, id, false); err != nil {
-			return "", err
+		id, err := strconv.ParseInt(p[2], 10, 64)
+		if err != nil {
+			return "invalid route_id", nil
 		}
-		return "route paused", nil
+		return s.RoutePause(id)
 	case "resume":
-		id, _ := strconv.ParseInt(p[2], 10, 64)
-		if err := s.store.UpdateRouteState(ctx, id, true); err != nil {
-			return "", err
+		id, err := strconv.ParseInt(p[2], 10, 64)
+		if err != nil {
+			return "invalid route_id", nil
 		}
-		return "route resumed", nil
+		return s.RouteResume(id)
 	case "delete":
-		id, _ := strconv.ParseInt(p[2], 10, 64)
-		if err := s.store.DeleteRoute(ctx, id); err != nil {
-			return "", err
+		id, err := strconv.ParseInt(p[2], 10, 64)
+		if err != nil {
+			return "invalid route_id", nil
 		}
-		return "route deleted", nil
+		return s.RouteDelete(id)
 	default:
 		return "unknown route command", nil
 	}
 }
 
-func (s *AdminService) execQueue(ctx context.Context, p []string) (string, error) {
+func (s *AdminService) execQueue(p []string) (string, error) {
 	if len(p) < 3 {
 		return "usage: queue <retry|clear-completed> ...", nil
 	}
@@ -302,25 +472,19 @@ func (s *AdminService) execQueue(ctx context.Context, p []string) (string, error
 		if err != nil {
 			return "invalid job_id", nil
 		}
-		if err := s.store.RetryJobNow(ctx, id); err != nil {
-			return "", err
-		}
-		return "job scheduled for retry", nil
+		return s.QueueRetry(id)
 	case "clear-completed":
 		days, err := strconv.Atoi(p[2])
 		if err != nil {
 			return "invalid days", nil
 		}
-		if err := s.store.ClearOldCompleted(ctx, days); err != nil {
-			return "", err
-		}
-		return "completed jobs cleanup triggered", nil
+		return s.QueueClearCompleted(days)
 	default:
 		return "unknown queue command", nil
 	}
 }
 
-func (s *AdminService) execUser(ctx context.Context, p []string) (string, error) {
+func (s *AdminService) execUser(p []string) (string, error) {
 	if len(p) < 3 {
 		return "usage: user <block|unblock|remove|test> ...", nil
 	}
@@ -330,17 +494,13 @@ func (s *AdminService) execUser(ctx context.Context, p []string) (string, error)
 	}
 	switch p[1] {
 	case "block":
-		return "user blocked", s.store.SetUserBlocked(ctx, id, true)
+		return s.UserBlock(id)
 	case "unblock":
-		return "user unblocked", s.store.SetUserBlocked(ctx, id, false)
+		return s.UserUnblock(id)
 	case "remove":
-		return "user removed", s.store.RemoveUser(ctx, id)
+		return s.UserRemove(id)
 	case "test":
-		err := s.mx.SendMessage(ctx, id, "Bridge test send")
-		if err != nil {
-			return "test send failed", err
-		}
-		return "test send success", nil
+		return s.UserTest(id)
 	default:
 		return "unknown user command", nil
 	}
@@ -388,5 +548,3 @@ queue retry <job_id>
 queue clear-completed <days>
 `)
 }
-
-

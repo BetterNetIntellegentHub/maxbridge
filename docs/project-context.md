@@ -1,6 +1,6 @@
 ﻿# Project Context: MaxBridge
 
-Updated: 2026-03-26
+Updated: 2026-03-27
 Path: `docs/project-context.md`
 
 ## 1. Цель проекта
@@ -90,7 +90,7 @@ Path: `docs/project-context.md`
 4. `worker run`
 5. `tui` (fullscreen)
 
-## 5. TUI sections и команды
+## 5. TUI sections и интерактивные действия
 
 ### 5.1 Секции
 1. Dashboard
@@ -104,24 +104,18 @@ Path: `docs/project-context.md`
 9. Settings
 10. Exit
 
-### 5.2 Командный режим (`:`)
-1. `group add <chat_id> <title>`
-2. `group probe <chat_id>`
-3. `group probeall now`
-4. `group remove <chat_id>`
-5. `group deeplink <bot_username> <payload>`
-6. `invite create <group|route|entity> <scope_id> <ttl>`
-7. `invite revoke <invite_id>`
-8. `route add <chat_id> <max_user_id> <all|text_only|mentions_only> <ignore_bots:true|false>`
-9. `route pause <route_id>`
-10. `route resume <route_id>`
-11. `route delete <route_id>`
-12. `user block <max_user_id>`
-13. `user unblock <max_user_id>`
-14. `user remove <max_user_id>`
-15. `user test <max_user_id>`
-16. `queue retry <job_id>`
-17. `queue clear-completed <days>`
+### 5.2 Навигация и операции
+1. Модель управления: `Enter` открывает следующий уровень меню (`раздел -> элемент -> список действий`).
+2. В разделах с данными (`Telegram Groups`, `MAX Users`, `Invites`, `Routes`, `Delivery Queue`) доступны:
+   - действия для выбранной записи;
+   - действия уровня раздела (например, add/create/cleanup) через отдельный пункт списка.
+3. Операции, требующие параметров, выполняются через встроенные формы ввода в TUI (без `:` режима).
+4. Потенциально destructive-операции требуют явного подтверждения (`y/enter` для выполнения, `n/esc` для отмены).
+5. Базовые клавиши:
+   - `Enter` — открыть/выбрать;
+   - `Esc` — шаг назад;
+   - `r` — обновить текущий список;
+   - `q` — выход.
 
 ## 6. Схема данных (PostgreSQL)
 
@@ -224,7 +218,7 @@ Path: `docs/project-context.md`
 1. Полноценные integration/e2e тесты пока placeholders (`tests/integration`, `tests/e2e`).
 2. Полная runtime валидация с `docker compose` и реальными webhooks в этой среде не выполнена (нет docker runtime); compile-валидация Go команд и модулей выполнялась.
 3. MAX webhook payload schema может требовать дополнительной адаптации под конкретные event variants.
-4. TUI реализован как fullscreen + command mode; wizard UX можно расширить отдельными формами.
+4. TUI реализован как fullscreen interactive menu; полная runtime-проверка UX в production-окружении не выполнялась в этой среде.
 
 ## 14. Правило работы с контекстом
 
