@@ -162,7 +162,7 @@ func (w *Worker) processOne(ctx context.Context, job domain.DeliveryJob) {
 		return
 	}
 	start := time.Now()
-	err := w.sender.SendMessageWithAttachments(ctx, job.MaxUserID, out.Text, attachments)
+	err := w.sendWithAttachmentWarmup(ctx, job.MaxUserID, out.Text, attachments)
 	latency := time.Since(start)
 	w.metrics.MaxAPILatency.Observe(latency.Seconds())
 
@@ -188,6 +188,31 @@ func (w *Worker) processOne(ctx context.Context, job domain.DeliveryJob) {
 		return
 	}
 	w.retry(ctx, job, err, false)
+}
+
+func (w *Worker) sendWithAttachmentWarmup(ctx context.Context, maxUserID int64, text string, attachments []maxapi.Attachment) error {
+	err := w.sender.SendMessageWithAttachments(ctx, maxUserID, text, attachments)
+	if err == nil || len(attachments) == 0 || !maxapi.IsAttachmentNotReadyError(err) {
+		return err
+	}
+
+	delays := []time.Duration{2 * time.Second, 4 * time.Second, 8 * time.Second}
+	lastErr := err
+	for _, d := range delays {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(d):
+		}
+		lastErr = w.sender.SendMessageWithAttachments(ctx, maxUserID, text, attachments)
+		if lastErr == nil {
+			return nil
+		}
+		if !maxapi.IsAttachmentNotReadyError(lastErr) {
+			return lastErr
+		}
+	}
+	return lastErr
 }
 
 func (w *Worker) retry(ctx context.Context, job domain.DeliveryJob, err error, temporary bool) {

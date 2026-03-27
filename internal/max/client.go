@@ -216,8 +216,17 @@ func IsTemporarySendError(err error) bool {
 	if apiErr.StatusCode >= 500 {
 		return true
 	}
-	if strings.Contains(strings.ToLower(apiErr.Body), "attachment.not.ready") {
+	if IsAttachmentNotReadyError(err) {
 		return true
 	}
 	return false
+}
+
+func IsAttachmentNotReadyError(err error) bool {
+	apiErr, ok := err.(*APIError)
+	if !ok {
+		return false
+	}
+	body := strings.ToLower(apiErr.Body)
+	return strings.Contains(body, "attachment.not.ready") || strings.Contains(body, "file.not.processed")
 }
