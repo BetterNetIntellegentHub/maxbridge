@@ -213,27 +213,41 @@ func (s *Store) EnqueueTelegramUpdate(ctx context.Context, upd domain.TelegramUp
 	}
 	defer rows.Close()
 
-	enqueued := 0
-	payload, _ := json.Marshal(msg)
+	type routeCandidate struct {
+		routeID    int64
+		maxUserID  int64
+		filterMode string
+		ignoreBots bool
+	}
+
+	candidates := make([]routeCandidate, 0, 8)
 	for rows.Next() {
-		var routeID, maxUserID int64
-		var filterMode string
-		var ignoreBots bool
-		if err := rows.Scan(&routeID, &maxUserID, &filterMode, &ignoreBots); err != nil {
+		var c routeCandidate
+		if err := rows.Scan(&c.routeID, &c.maxUserID, &c.filterMode, &c.ignoreBots); err != nil {
 			return 0, err
 		}
-		if !routePassesFilter(filterMode, ignoreBots, msg) {
+		candidates = append(candidates, c)
+	}
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+	rows.Close()
+
+	enqueued := 0
+	payload, _ := json.Marshal(msg)
+	for _, c := range candidates {
+		if !routePassesFilter(c.filterMode, c.ignoreBots, msg) {
 			continue
 		}
 
-		dedupe := domain.DedupeKey(routeID, msg.Chat.ID, msg.MessageID)
+		dedupe := domain.DedupeKey(c.routeID, msg.Chat.ID, msg.MessageID)
 		var dedupeID int64
 		err = tx.QueryRow(ctx, `
 			INSERT INTO dedupe_records (dedupe_key, route_id, telegram_chat_id, telegram_message_id, expires_at)
 			VALUES ($1, $2, $3, $4, now() + interval '14 days')
 			ON CONFLICT (dedupe_key) DO NOTHING
 			RETURNING id
-		`, dedupe, routeID, msg.Chat.ID, msg.MessageID).Scan(&dedupeID)
+		`, dedupe, c.routeID, msg.Chat.ID, msg.MessageID).Scan(&dedupeID)
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				continue
@@ -247,15 +261,11 @@ func (s *Store) EnqueueTelegramUpdate(ctx context.Context, upd domain.TelegramUp
 				status, attempts, max_attempts, available_at
 			)
 			VALUES ($1, $2, $3, $4, $5, 'pending', 0, $6, now())
-		`, routeID, msg.Chat.ID, msg.MessageID, maxUserID, payload, maxAttempts)
+		`, c.routeID, msg.Chat.ID, msg.MessageID, c.maxUserID, payload, maxAttempts)
 		if err != nil {
 			return 0, err
 		}
 		enqueued++
-	}
-
-	if err := rows.Err(); err != nil {
-		return 0, err
 	}
 
 	if err := tx.Commit(ctx); err != nil {
