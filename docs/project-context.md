@@ -184,6 +184,9 @@ Path: `docs/project-context.md`
 3. При `maxbridge_manage_secrets=true` Ansible сам управляет секретами на target host; внешние токены (`maxbridge_telegram_bot_token`, `maxbridge_max_bot_token`) задаются через Vault vars.
 4. Compose `.env` формируется Ansible (`BRIDGE_IMAGE`, `NGINX_HTTPS_PORT`), что позволяет переопределять host HTTPS port (например `8443`, если `443` занят).
 5. Для private registry задаются `maxbridge_registry_private=true`, `maxbridge_registry_username`, `maxbridge_registry_url`, а секрет `maxbridge_registry_token` хранится в Vault; перед pull Ansible делает `docker login` и валидирует наличие creds в private-режиме.
+6. При деплое нового образа задавать `maxbridge_image` явно (например `docker.io/argusvlad/maxbridge:<tag>`), иначе может использоваться default placeholder registry.
+7. Токен registry хранится в Vault; для публикации образов с control host нужны scope на push (`read/write`), иначе `docker push` вернёт `insufficient scopes`.
+8. После пересоздания `bridge` возможен кратковременный `502` на внешнем `health/ready` из-за stale upstream в Nginx; рабочий обход — рестарт `compose-nginx-1`.
 
 ### 10.3 Rollback
 1. Повторный deploy с предыдущим immutable tag.
