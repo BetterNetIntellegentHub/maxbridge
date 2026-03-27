@@ -1,4 +1,4 @@
-﻿package invites
+package invites
 
 import (
 	"context"
@@ -50,6 +50,10 @@ func (s *Service) CreateInvite(ctx context.Context, input CreateInviteInput) (Cr
 	}
 	hash := s.HashCode(code)
 	expires := time.Now().UTC().Add(input.TTL)
+	if input.Metadata == nil {
+		input.Metadata = map[string]any{}
+	}
+	input.Metadata["raw_code"] = code
 	id, err := s.store.CreateInvite(
 		ctx,
 		input.ScopeType,

@@ -57,7 +57,7 @@ func (s *Store) CreateInvite(ctx context.Context, scopeType, scopeID, codeHash s
 }
 
 func (s *Store) RevokeInvite(ctx context.Context, inviteID int64) error {
-	_, err := s.pool.Exec(ctx, `UPDATE invites SET revoked_at = now(), updated_at = now() WHERE id = $1 AND revoked_at IS NULL`, inviteID)
+	_, err := s.pool.Exec(ctx, `DELETE FROM invites WHERE id = $1`, inviteID)
 	return err
 }
 
@@ -100,11 +100,9 @@ func (s *Store) ConsumeInvite(ctx context.Context, codeHash string) (domain.Invi
 		return domain.Invite{}, ErrInviteNotFound
 	}
 
-	if inv.SingleUse {
-		_, err = tx.Exec(ctx, `UPDATE invites SET used_at = now(), updated_at = now() WHERE id = $1`, inv.ID)
-		if err != nil {
-			return domain.Invite{}, err
-		}
+	_, err = tx.Exec(ctx, `DELETE FROM invites WHERE id = $1`, inv.ID)
+	if err != nil {
+		return domain.Invite{}, err
 	}
 
 	if err := tx.Commit(ctx); err != nil {
@@ -461,7 +459,7 @@ func (s *Store) ListMaxUsers(ctx context.Context) ([]map[string]any, error) {
 }
 
 func (s *Store) ListInvites(ctx context.Context) ([]map[string]any, error) {
-	rows, err := s.pool.Query(ctx, `SELECT id, scope_type, scope_id, expires_at, used_at, revoked_at, single_use, created_at FROM invites ORDER BY id DESC LIMIT 200`)
+	rows, err := s.pool.Query(ctx, `SELECT id, scope_type, scope_id, expires_at, used_at, revoked_at, single_use, created_at, COALESCE(metadata->>'raw_code', '') FROM invites ORDER BY id DESC LIMIT 200`)
 	if err != nil {
 		return nil, err
 	}
@@ -474,10 +472,20 @@ func (s *Store) ListInvites(ctx context.Context) ([]map[string]any, error) {
 		var exp, created time.Time
 		var used, revoked *time.Time
 		var single bool
-		if err := rows.Scan(&id, &scopeType, &scopeID, &exp, &used, &revoked, &single, &created); err != nil {
+		var rawCode string
+		if err := rows.Scan(&id, &scopeType, &scopeID, &exp, &used, &revoked, &single, &created, &rawCode); err != nil {
 			return nil, err
 		}
-		out = append(out, map[string]any{"id": id, "scope": scopeType + ":" + scopeID, "expires_at": exp, "used_at": used, "revoked_at": revoked, "single_use": single, "created_at": created})
+		out = append(out, map[string]any{
+			"id":         id,
+			"scope":      scopeType + ":" + scopeID,
+			"expires_at": exp,
+			"used_at":    used,
+			"revoked_at": revoked,
+			"single_use": single,
+			"created_at": created,
+			"raw_code":   rawCode,
+		})
 	}
 	return out, rows.Err()
 }

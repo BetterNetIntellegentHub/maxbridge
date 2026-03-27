@@ -122,14 +122,15 @@ Path: `docs/project-context.md`
    - `r` — обновить текущий список;
    - `q` — выход.
 8. Для `Добавить маршрут` в UI применяются безопасные defaults: `filter_mode=all`, `ignore_bot_messages=true` (без ручного ввода этих параметров).
-9. `Создать инвайт` в разделе `Invites` и для выбранного пользователя MAX выполняется в one-click режиме с безопасным default TTL (`24h`) без обязательной формы ручного ввода.
+9. `Создать инвайт` в разделе `Invites` выполняется в one-click режиме с безопасным default TTL (`24h`) без обязательной формы ручного ввода.
+10. Использованные и отозванные инвайты удаляются из БД и не отображаются в списках TUI.
 
 ## 6. Схема данных (PostgreSQL)
 
 Основные таблицы:
 1. `telegram_groups`
 2. `max_users`
-3. `invites` (hash only, без raw code)
+3. `invites` (hash + raw code в metadata для операторского отображения в TUI; used/revoked инвайты удаляются)
 4. `routes`
 5. `dedupe_records` (unique `dedupe_key`)
 6. `delivery_jobs`

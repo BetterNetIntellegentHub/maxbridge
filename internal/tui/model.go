@@ -823,7 +823,6 @@ func (m Model) buildRowActions(section string, entry listEntry) []menuAction {
 		}
 	case "MAX Users":
 		return []menuAction{
-			{id: "invite_create_for_user", label: "Создать инвайт (24ч)"},
 			{id: "user_block", label: "Заблокировать пользователя"},
 			{id: "user_unblock", label: "Разблокировать пользователя"},
 			{id: "user_test", label: "Отправить тест"},
@@ -880,12 +879,6 @@ func (m Model) executeAction(section, actionID string, entry listEntry, values m
 		return svc.GroupDisable(chatID)
 	case "invite_create":
 		return svc.InviteCreate("entity", "general", "24h")
-	case "invite_create_for_user":
-		id, err := intFromRow(entry.row, "max_user_id")
-		if err != nil {
-			return "", err
-		}
-		return svc.InviteCreate("entity", strconv.FormatInt(id, 10), "24h")
 	case "invite_revoke":
 		id, err := intFromRow(entry.row, "id")
 		if err != nil {
@@ -968,6 +961,9 @@ func formatRowTitle(section string, row map[string]any) string {
 	case "MAX Users":
 		return fmt.Sprintf("Пользователь MAX %v", row["max_user_id"])
 	case "Invites":
+		if raw := strings.TrimSpace(fmt.Sprintf("%v", row["raw_code"])); raw != "" && raw != "<nil>" {
+			return fmt.Sprintf("Код: %s", raw)
+		}
 		return fmt.Sprintf("Область: %v", row["scope"])
 	case "Routes":
 		groupTitle := strings.TrimSpace(fmt.Sprintf("%v", row["group_title"]))
@@ -994,7 +990,7 @@ func formatRowDetail(section string, row map[string]any) string {
 	case "MAX Users":
 		return fmt.Sprintf("max_user_id=%v id=%v заблокирован=%v последнее=%v", row["max_user_id"], row["id"], row["blocked"], row["last"])
 	case "Invites":
-		return fmt.Sprintf("id=%v до=%v отозван=%v использован=%v", row["id"], row["expires_at"], row["revoked_at"], row["used_at"])
+		return fmt.Sprintf("id=%v scope=%v до=%v", row["id"], row["scope"], row["expires_at"])
 	case "Routes":
 		return fmt.Sprintf("id=%v chat_id=%v max_user_id=%v включен=%v фильтр=%v", row["id"], row["chat_id"], row["max_user_id"], row["enabled"], row["filter"])
 	case "Delivery Queue":
