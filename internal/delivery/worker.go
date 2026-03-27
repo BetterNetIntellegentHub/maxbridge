@@ -158,7 +158,7 @@ func (w *Worker) processOne(ctx context.Context, job domain.DeliveryJob) {
 	out := renderMessage(job)
 	attachments, mediaErr := w.prepareAttachments(ctx, out.Media)
 	if mediaErr != nil {
-		w.retry(ctx, job, mediaErr, true)
+		w.retry(ctx, job, mediaErr, maxapi.IsTemporarySendError(mediaErr))
 		return
 	}
 	start := time.Now()
