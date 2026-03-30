@@ -774,8 +774,8 @@ func buildUserPickerOptions(rows []map[string]any) []pickerOption {
 		}
 		out = append(out, pickerOption{
 			id:     id,
-			title:  fmt.Sprintf("Пользователь MAX %d", id),
-			detail: fmt.Sprintf("заблокирован=%v последнее=%v", row["blocked"], row["last"]),
+			title:  formatMaxUserName(row),
+			detail: fmt.Sprintf("id=%d заблокирован=%v последнее=%v", id, row["blocked"], row["last"]),
 		})
 	}
 	return out
@@ -944,7 +944,7 @@ func (m Model) executeAction(section, actionID string, entry listEntry, values m
 		}
 		return svc.QueueRetry(id)
 	case "queue_clear_completed":
-		return svc.QueueClearCompleted(7)
+		return svc.QueueClearCompletedAll()
 	default:
 		return "", fmt.Errorf("неизвестное действие для %s: %s", section, actionID)
 	}
@@ -959,7 +959,7 @@ func formatRowTitle(section string, row map[string]any) string {
 		}
 		return fmt.Sprintf("%s", title)
 	case "MAX Users":
-		return fmt.Sprintf("Пользователь MAX %v", row["max_user_id"])
+		return formatMaxUserName(row)
 	case "Invites":
 		if raw := strings.TrimSpace(fmt.Sprintf("%v", row["raw_code"])); raw != "" && raw != "<nil>" {
 			return fmt.Sprintf("Код: %s", raw)
@@ -970,9 +970,9 @@ func formatRowTitle(section string, row map[string]any) string {
 		if groupTitle == "" || groupTitle == "<nil>" {
 			groupTitle = fmt.Sprintf("Чат %v", row["chat_id"])
 		}
-		return fmt.Sprintf("%s -> MAX %v", groupTitle, row["max_user_id"])
+		return fmt.Sprintf("%s -> %s", groupTitle, formatMaxUserName(row))
 	case "Delivery Queue":
-		return fmt.Sprintf("Статус: %v", row["status"])
+		return fmt.Sprintf("Статус: %v | %s", row["status"], formatMaxUserName(row))
 	case "Logs":
 		return fmt.Sprintf("[%v] %v", row["level"], row["message"])
 	default:
@@ -988,13 +988,13 @@ func formatRowDetail(section string, row map[string]any) string {
 	case "Telegram Groups":
 		return fmt.Sprintf("chat_id=%v id=%v готовность=%v включена=%v", row["chat_id"], row["id"], row["readiness"], row["enabled"])
 	case "MAX Users":
-		return fmt.Sprintf("max_user_id=%v id=%v заблокирован=%v последнее=%v", row["max_user_id"], row["id"], row["blocked"], row["last"])
+		return fmt.Sprintf("пользователь=%s max_user_id=%v id=%v заблокирован=%v последнее=%v", formatMaxUserName(row), row["max_user_id"], row["id"], row["blocked"], row["last"])
 	case "Invites":
 		return fmt.Sprintf("id=%v scope=%v до=%v", row["id"], row["scope"], row["expires_at"])
 	case "Routes":
-		return fmt.Sprintf("id=%v chat_id=%v max_user_id=%v включен=%v фильтр=%v", row["id"], row["chat_id"], row["max_user_id"], row["enabled"], row["filter"])
+		return fmt.Sprintf("пользователь=%s max_user_id=%v id=%v chat_id=%v включен=%v фильтр=%v", formatMaxUserName(row), row["max_user_id"], row["id"], row["chat_id"], row["enabled"], row["filter"])
 	case "Delivery Queue":
-		return fmt.Sprintf("job_id=%v max_user_id=%v chat_id=%v попытки=%v/%v доступно=%v", row["id"], row["max_user_id"], row["chat_id"], row["attempts"], row["max_attempts"], row["available_at"])
+		return fmt.Sprintf("пользователь=%s max_user_id=%v job_id=%v chat_id=%v попытки=%v/%v доступно=%v", formatMaxUserName(row), row["max_user_id"], row["id"], row["chat_id"], row["attempts"], row["max_attempts"], row["available_at"])
 	case "Logs":
 		return fmt.Sprintf("источник=%v время=%v", row["source"], row["created_at"])
 	default:
@@ -1032,6 +1032,30 @@ func parseInt64(raw, field string) (int64, error) {
 		return 0, fmt.Errorf("некорректное значение %s", field)
 	}
 	return v, nil
+}
+
+func formatMaxUserName(row map[string]any) string {
+	lastName := strings.TrimSpace(fmt.Sprintf("%v", row["last_name"]))
+	firstName := strings.TrimSpace(fmt.Sprintf("%v", row["first_name"]))
+	if lastName == "<nil>" {
+		lastName = ""
+	}
+	if firstName == "<nil>" {
+		firstName = ""
+	}
+	lastName = strings.TrimSpace(lastName)
+	firstName = strings.TrimSpace(firstName)
+	if lastName != "" && firstName != "" {
+		r := []rune(firstName)
+		return fmt.Sprintf("%s %c.", lastName, r[0])
+	}
+	if lastName != "" {
+		return lastName
+	}
+	if firstName != "" {
+		return firstName
+	}
+	return fmt.Sprintf("Пользователь MAX %v", row["max_user_id"])
 }
 
 func max(a, b int) int {

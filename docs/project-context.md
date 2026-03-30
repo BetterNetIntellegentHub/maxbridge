@@ -62,7 +62,7 @@ Path: `docs/project-context.md`
    - только counter `invalid_link_ignored_total`.
 5. Valid link:
    - consume invite (hash-based)
-   - upsert linked user
+   - upsert linked user (включая `first_name/last_name` из sender при наличии)
    - optional auto-route binding by scope
    - immediate test send в MAX
    - update user delivery status
@@ -130,7 +130,7 @@ Path: `docs/project-context.md`
 
 Основные таблицы:
 1. `telegram_groups`
-2. `max_users`
+2. `max_users` (`first_name`, `last_name` для user-friendly отображения в TUI)
 3. `invites` (hash + raw code в metadata для операторского отображения в TUI; used/revoked инвайты удаляются)
 4. `routes`
 5. `dedupe_records` (unique `dedupe_key`)

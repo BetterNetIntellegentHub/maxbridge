@@ -11,12 +11,14 @@ func TestExtractMaxLinkInput_FromMessageText(t *testing.T) {
 		Message: &domain.MaxWebhookMessage{
 			Text: "/link MB-ABC123",
 			Sender: domain.MaxSenderRef{
-				UserID: 1001,
+				UserID:    1001,
+				FirstName: "Ivan",
+				LastName:  "Petrov",
 			},
 		},
 	}
 
-	userID, text, ok := extractMaxLinkInput(upd)
+	userID, text, firstName, lastName, ok := extractMaxLinkInput(upd)
 	if !ok {
 		t.Fatal("expected input to be extracted")
 	}
@@ -25,6 +27,12 @@ func TestExtractMaxLinkInput_FromMessageText(t *testing.T) {
 	}
 	if text != "/link MB-ABC123" {
 		t.Fatalf("unexpected text: %s", text)
+	}
+	if firstName != "Ivan" {
+		t.Fatalf("unexpected first_name: %s", firstName)
+	}
+	if lastName != "Petrov" {
+		t.Fatalf("unexpected last_name: %s", lastName)
 	}
 }
 
@@ -40,7 +48,7 @@ func TestExtractMaxLinkInput_FromBodyText(t *testing.T) {
 		},
 	}
 
-	userID, text, ok := extractMaxLinkInput(upd)
+	userID, text, firstName, lastName, ok := extractMaxLinkInput(upd)
 	if !ok {
 		t.Fatal("expected input to be extracted from body.text")
 	}
@@ -49,6 +57,12 @@ func TestExtractMaxLinkInput_FromBodyText(t *testing.T) {
 	}
 	if text != "/link MB-XYZ789" {
 		t.Fatalf("unexpected text: %s", text)
+	}
+	if firstName != "" {
+		t.Fatalf("unexpected first_name: %s", firstName)
+	}
+	if lastName != "" {
+		t.Fatalf("unexpected last_name: %s", lastName)
 	}
 }
 
@@ -59,9 +73,8 @@ func TestExtractMaxLinkInput_InvalidWhenUserMissing(t *testing.T) {
 		},
 	}
 
-	_, _, ok := extractMaxLinkInput(upd)
+	_, _, _, _, ok := extractMaxLinkInput(upd)
 	if ok {
 		t.Fatal("expected invalid input when user_id is missing")
 	}
 }
-

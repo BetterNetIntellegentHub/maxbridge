@@ -320,7 +320,17 @@ func (s *AdminService) QueueClearCompleted(days int) (string, error) {
 	if err := s.store.ClearOldCompleted(ctx, days); err != nil {
 		return "", err
 	}
-	return "Очистка завершённых заданий запущена.", nil
+	return fmt.Sprintf("Удалены завершённые задания старше %d дн.", days), nil
+}
+
+func (s *AdminService) QueueClearCompletedAll() (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), s.timeout)
+	defer cancel()
+	deleted, err := s.store.ClearCompletedNow(ctx)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("Удалено завершённых задач: %d.", deleted), nil
 }
 
 func normalizeFilterMode(mode string) (string, error) {

@@ -251,3 +251,50 @@ func TestRouteAddStartsPickerMode(t *testing.T) {
 		t.Fatalf("expected modeRouteAddPicker, got %v", next.mode)
 	}
 }
+
+func TestFormatMaxUserName_LastAndFirst(t *testing.T) {
+	row := map[string]any{
+		"max_user_id": int64(42),
+		"first_name":  "Иван",
+		"last_name":   "Петров",
+	}
+	got := formatMaxUserName(row)
+	if got != "Петров И." {
+		t.Fatalf("unexpected display name: %q", got)
+	}
+}
+
+func TestFormatMaxUserName_FallbackToID(t *testing.T) {
+	row := map[string]any{
+		"max_user_id": int64(42),
+	}
+	got := formatMaxUserName(row)
+	if got != "Пользователь MAX 42" {
+		t.Fatalf("unexpected fallback display name: %q", got)
+	}
+}
+
+func TestFormatRowTitle_UsesDisplayNameForRoutesAndQueue(t *testing.T) {
+	routeRow := map[string]any{
+		"group_title":  "Группа A",
+		"chat_id":      int64(-1001),
+		"max_user_id":  int64(77),
+		"first_name":   "Иван",
+		"last_name":    "Петров",
+	}
+	title := formatRowTitle("Routes", routeRow)
+	if title != "Группа A -> Петров И." {
+		t.Fatalf("unexpected route title: %q", title)
+	}
+
+	queueRow := map[string]any{
+		"status":      "retry",
+		"max_user_id": int64(77),
+		"first_name":  "Иван",
+		"last_name":   "Петров",
+	}
+	queueTitle := formatRowTitle("Delivery Queue", queueRow)
+	if queueTitle != "Статус: retry | Петров И." {
+		t.Fatalf("unexpected queue title: %q", queueTitle)
+	}
+}

@@ -126,7 +126,9 @@ type MaxWebhookMessage struct {
 }
 
 type MaxSenderRef struct {
-	UserID int64 `json:"user_id"`
+	UserID    int64  `json:"user_id"`
+	FirstName string `json:"first_name,omitempty"`
+	LastName  string `json:"last_name,omitempty"`
 }
 
 type Invite struct {
