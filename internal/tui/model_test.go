@@ -150,7 +150,7 @@ func TestActionsListEndsWithBack(t *testing.T) {
 	}
 }
 
-func TestMaxUsersHasRefreshProfileAction(t *testing.T) {
+func TestMaxUsersHasRenameAction(t *testing.T) {
 	m := NewModel(nil)
 	actions := m.buildRowActions("MAX Users", listEntry{
 		kind: rowRecord,
@@ -158,13 +158,13 @@ func TestMaxUsersHasRefreshProfileAction(t *testing.T) {
 	})
 	found := false
 	for _, a := range actions {
-		if a.id == "user_refresh_profile" {
+		if a.id == "user_rename" {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Fatalf("expected user_refresh_profile action in MAX Users")
+		t.Fatalf("expected user_rename action in MAX Users")
 	}
 }
 
@@ -182,11 +182,11 @@ func TestSectionActionOpensFormDirectlyFromRows(t *testing.T) {
 	}
 
 	next, cmd := applyKey(m, tea.KeyMsg{Type: tea.KeyEnter})
-	if cmd == nil {
-		t.Fatalf("expected async command when running one-click section action")
+	if cmd != nil {
+		t.Fatalf("expected no async command when opening section action form")
 	}
-	if next.mode != modeRows {
-		t.Fatalf("expected modeRows, got %v", next.mode)
+	if next.mode != modeForm {
+		t.Fatalf("expected modeForm, got %v", next.mode)
 	}
 }
 
@@ -197,7 +197,7 @@ func TestSectionActionFormEscReturnsToRows(t *testing.T) {
 	m.form = actionForm{
 		action: action,
 		fields: action.fields,
-		values: []string{"group", "1", "24h"},
+		values: []string{"Иван Петров"},
 		ret:    modeRows,
 	}
 
@@ -270,14 +270,13 @@ func TestRouteAddStartsPickerMode(t *testing.T) {
 	}
 }
 
-func TestFormatMaxUserName_LastAndFirst(t *testing.T) {
+func TestFormatMaxUserName_FullName(t *testing.T) {
 	row := map[string]any{
 		"max_user_id": int64(42),
-		"first_name":  "Иван",
-		"last_name":   "Петров",
+		"full_name":   "Иван Петров",
 	}
 	got := formatMaxUserName(row)
-	if got != "Петров И." {
+	if got != "Иван Петров" {
 		t.Fatalf("unexpected display name: %q", got)
 	}
 }
@@ -297,22 +296,20 @@ func TestFormatRowTitle_UsesDisplayNameForRoutesAndQueue(t *testing.T) {
 		"group_title":  "Группа A",
 		"chat_id":      int64(-1001),
 		"max_user_id":  int64(77),
-		"first_name":   "Иван",
-		"last_name":    "Петров",
+		"full_name":    "Иван Петров",
 	}
 	title := formatRowTitle("Routes", routeRow)
-	if title != "Группа A -> Петров И." {
+	if title != "Группа A -> Иван Петров" {
 		t.Fatalf("unexpected route title: %q", title)
 	}
 
 	queueRow := map[string]any{
 		"status":      "retry",
 		"max_user_id": int64(77),
-		"first_name":  "Иван",
-		"last_name":   "Петров",
+		"full_name":   "Иван Петров",
 	}
 	queueTitle := formatRowTitle("Delivery Queue", queueRow)
-	if queueTitle != "Статус: retry | Петров И." {
+	if queueTitle != "Статус: retry | Иван Петров" {
 		t.Fatalf("unexpected queue title: %q", queueTitle)
 	}
 }

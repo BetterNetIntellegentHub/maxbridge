@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -233,7 +234,7 @@ func (s *Server) handleMaxWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID, text, firstName, lastName, ok := extractMaxLinkInput(upd)
+	userID, text, ok := extractMaxLinkInput(upd)
 	if !ok {
 		s.metrics.InvalidLinkIgnoredTotal.Inc()
 		w.WriteHeader(http.StatusNoContent)
@@ -255,7 +256,14 @@ func (s *Server) handleMaxWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err = s.store.UpsertLinkedUser(r.Context(), userID, firstName, lastName)
+	inviteName := ""
+	if inv.Metadata != nil {
+		inviteName = strings.TrimSpace(fmt.Sprintf("%v", inv.Metadata["max_full_name"]))
+		if inviteName == "<nil>" {
+			inviteName = ""
+		}
+	}
+	_, err = s.store.UpsertLinkedUser(r.Context(), userID, inviteName)
 	if err != nil {
 		s.metrics.DBErrorsTotal.Inc()
 		http.Error(w, "internal error", http.StatusInternalServerError)
@@ -287,27 +295,25 @@ func (s *Server) handleMaxWebhook(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func extractMaxLinkInput(upd domain.MaxWebhookUpdate) (userID int64, text, firstName, lastName string, ok bool) {
+func extractMaxLinkInput(upd domain.MaxWebhookUpdate) (userID int64, text string, ok bool) {
 	if upd.Message == nil {
-		return 0, "", "", "", false
+		return 0, "", false
 	}
 	userID = upd.Message.Sender.UserID
 	if userID <= 0 {
-		return 0, "", "", "", false
+		return 0, "", false
 	}
-	firstName = strings.TrimSpace(upd.Message.Sender.FirstName)
-	lastName = strings.TrimSpace(upd.Message.Sender.LastName)
 	text = strings.TrimSpace(upd.Message.Text)
 	if text != "" {
-		return userID, text, firstName, lastName, true
+		return userID, text, true
 	}
 	if upd.Message.Body != nil {
 		text = strings.TrimSpace(upd.Message.Body.Text)
 		if text != "" {
-			return userID, text, firstName, lastName, true
+			return userID, text, true
 		}
 	}
-	return 0, "", "", "", false
+	return 0, "", false
 }
 
 func cutErr(err error) string {

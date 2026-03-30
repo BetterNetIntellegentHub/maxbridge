@@ -196,10 +196,14 @@ func (s *AdminService) GroupDeepLink(botUsername, payload string) (string, error
 	return s.tg.DeepLinkStartGroup(botUsername, payload), nil
 }
 
-func (s *AdminService) InviteCreate(scopeType, scopeID, ttlRaw string) (string, error) {
+func (s *AdminService) InviteCreate(scopeType, scopeID, ttlRaw, maxFullName string) (string, error) {
 	ttl, err := time.ParseDuration(strings.TrimSpace(ttlRaw))
 	if err != nil {
 		return "", fmt.Errorf("некорректный ttl (пример: 24h)")
+	}
+	maxFullName = strings.TrimSpace(maxFullName)
+	if maxFullName == "" {
+		return "", fmt.Errorf("имя пользователя MAX обязательно")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), s.timeout)
 	defer cancel()
@@ -208,12 +212,15 @@ func (s *AdminService) InviteCreate(scopeType, scopeID, ttlRaw string) (string, 
 		ScopeID:   strings.TrimSpace(scopeID),
 		TTL:       ttl,
 		SingleUse: true,
-		Metadata:  map[string]any{"created_by": "tui"},
+		Metadata: map[string]any{
+			"created_by":    "tui",
+			"max_full_name": maxFullName,
+		},
 	})
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("Инвайт создан: id=%d, истекает=%s, raw=%s (показать один раз)", out.InviteID, out.Expires.Format(time.RFC3339), out.RawCode), nil
+	return fmt.Sprintf("Инвайт создан: id=%d, имя=%s, истекает=%s, raw=%s (показать один раз)", out.InviteID, maxFullName, out.Expires.Format(time.RFC3339), out.RawCode), nil
 }
 
 func (s *AdminService) InviteRevoke(inviteID int64) (string, error) {
@@ -302,26 +309,17 @@ func (s *AdminService) UserTest(maxUserID int64) (string, error) {
 	return "Тестовая отправка выполнена успешно.", nil
 }
 
-func (s *AdminService) UserRefreshProfile(maxUserID int64) (string, error) {
+func (s *AdminService) UserRename(maxUserID int64, fullName string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), s.timeout)
 	defer cancel()
-
-	profile, found, err := s.mx.LookupUserProfile(ctx, maxUserID)
-	if err != nil {
-		return "", fmt.Errorf("не удалось обновить профиль: %w", err)
+	fullName = strings.TrimSpace(fullName)
+	if fullName == "" {
+		return "", fmt.Errorf("имя пользователя MAX обязательно")
 	}
-	if !found || strings.TrimSpace(profile.FirstName) == "" {
-		return "Профиль не найден в доступных чатах.", nil
-	}
-	if err := s.store.UpdateMaxUserProfile(ctx, maxUserID, profile.FirstName, profile.LastName); err != nil {
+	if err := s.store.UpdateMaxUserName(ctx, maxUserID, fullName); err != nil {
 		return "", err
 	}
-	name := formatMaxUserName(map[string]any{
-		"max_user_id": maxUserID,
-		"first_name":  profile.FirstName,
-		"last_name":   profile.LastName,
-	})
-	return fmt.Sprintf("Профиль обновлён: %s", name), nil
+	return fmt.Sprintf("Имя пользователя обновлено: %s", fullName), nil
 }
 
 func (s *AdminService) QueueRetry(jobID int64) (string, error) {
@@ -434,10 +432,10 @@ func (s *AdminService) execInvite(p []string) (string, error) {
 	}
 	switch p[1] {
 	case "create":
-		if len(p) < 5 {
-			return "Использование: invite create <group|route|entity> <scope_id> <ttl>", nil
+		if len(p) < 6 {
+			return "Использование: invite create <group|route|entity> <scope_id> <ttl> <имя_пользователя_MAX>", nil
 		}
-		return s.InviteCreate(p[2], p[3], p[4])
+		return s.InviteCreate(p[2], p[3], p[4], strings.Join(p[5:], " "))
 	case "revoke":
 		id, err := strconv.ParseInt(p[2], 10, 64)
 		if err != nil {
@@ -518,7 +516,7 @@ func (s *AdminService) execQueue(p []string) (string, error) {
 
 func (s *AdminService) execUser(p []string) (string, error) {
 	if len(p) < 3 {
-		return "Использование: user <block|unblock|remove|test|refresh-profile> ...", nil
+		return "Использование: user <block|unblock|remove|test|rename> ...", nil
 	}
 	id, err := strconv.ParseInt(p[2], 10, 64)
 	if err != nil {
@@ -533,8 +531,11 @@ func (s *AdminService) execUser(p []string) (string, error) {
 		return s.UserRemove(id)
 	case "test":
 		return s.UserTest(id)
-	case "refresh-profile":
-		return s.UserRefreshProfile(id)
+	case "rename":
+		if len(p) < 4 {
+			return "Использование: user rename <max_user_id> <имя>", nil
+		}
+		return s.UserRename(id, strings.Join(p[3:], " "))
 	default:
 		return "Неизвестная подкоманда user.", nil
 	}
@@ -565,7 +566,7 @@ group probeall now
 group remove <chat_id>
 group deeplink <bot_username> <payload>
 
-invite create <group|route|entity> <scope_id> <ttl>
+invite create <group|route|entity> <scope_id> <ttl> <имя_пользователя_MAX>
 invite revoke <invite_id>
 
 route add <chat_id> <max_user_id> <all|text_only|mentions_only> <ignore_bots:true|false>
@@ -577,7 +578,7 @@ user block <max_user_id>
 user unblock <max_user_id>
 user remove <max_user_id>
 user test <max_user_id>
-user refresh-profile <max_user_id>
+user rename <max_user_id> <имя>
 
 queue retry <job_id>
 queue clear-completed <days>

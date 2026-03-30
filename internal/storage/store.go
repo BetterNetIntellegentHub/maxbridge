@@ -113,19 +113,18 @@ func (s *Store) ConsumeInvite(ctx context.Context, codeHash string) (domain.Invi
 	return inv, nil
 }
 
-func (s *Store) UpsertLinkedUser(ctx context.Context, maxUserID int64, firstName, lastName string) (int64, error) {
+func (s *Store) UpsertLinkedUser(ctx context.Context, maxUserID int64, fullName string) (int64, error) {
 	var id int64
 	err := s.pool.QueryRow(ctx, `
-		INSERT INTO max_users (max_user_id, first_name, last_name, is_active, is_blocked, linked_at)
-		VALUES ($1, NULLIF($2, ''), NULLIF($3, ''), true, false, now())
+		INSERT INTO max_users (max_user_id, full_name, is_active, is_blocked, linked_at)
+		VALUES ($1, NULLIF($2, ''), true, false, now())
 		ON CONFLICT (max_user_id)
 		DO UPDATE SET
 			is_active = true,
-			first_name = CASE WHEN NULLIF($2, '') IS NOT NULL THEN NULLIF($2, '') ELSE max_users.first_name END,
-			last_name = CASE WHEN NULLIF($3, '') IS NOT NULL THEN NULLIF($3, '') ELSE max_users.last_name END,
+			full_name = CASE WHEN NULLIF($2, '') IS NOT NULL THEN NULLIF($2, '') ELSE max_users.full_name END,
 			updated_at = now()
 		RETURNING id
-	`, maxUserID, strings.TrimSpace(firstName), strings.TrimSpace(lastName)).Scan(&id)
+	`, maxUserID, strings.TrimSpace(fullName)).Scan(&id)
 	return id, err
 }
 
@@ -454,7 +453,7 @@ func (s *Store) ListTelegramGroups(ctx context.Context) ([]map[string]any, error
 
 func (s *Store) ListMaxUsers(ctx context.Context) ([]map[string]any, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, max_user_id, COALESCE(first_name, ''), COALESCE(last_name, ''), is_active, is_blocked, linked_at, last_delivery_status, updated_at
+		SELECT id, max_user_id, COALESCE(full_name, ''), is_active, is_blocked, linked_at, last_delivery_status, updated_at
 		FROM max_users
 		WHERE is_active = true
 		ORDER BY id
@@ -467,18 +466,17 @@ func (s *Store) ListMaxUsers(ctx context.Context) ([]map[string]any, error) {
 	out := make([]map[string]any, 0)
 	for rows.Next() {
 		var id, uid int64
-		var firstName, lastName string
+		var fullName string
 		var active, blocked bool
 		var linked, updated time.Time
 		var last string
-		if err := rows.Scan(&id, &uid, &firstName, &lastName, &active, &blocked, &linked, &last, &updated); err != nil {
+		if err := rows.Scan(&id, &uid, &fullName, &active, &blocked, &linked, &last, &updated); err != nil {
 			return nil, err
 		}
 		out = append(out, map[string]any{
 			"id":          id,
 			"max_user_id": uid,
-			"first_name":  firstName,
-			"last_name":   lastName,
+			"full_name":   fullName,
 			"active":      active,
 			"blocked":     blocked,
 			"linked_at":   linked,
@@ -533,8 +531,7 @@ func (s *Store) ListRoutes(ctx context.Context) ([]map[string]any, error) {
 			r.last_delivery_status,
 			r.updated_at,
 			tg.title,
-			COALESCE(mu.first_name, ''),
-			COALESCE(mu.last_name, '')
+			COALESCE(mu.full_name, '')
 		FROM routes r
 		LEFT JOIN telegram_groups tg ON tg.telegram_chat_id = r.telegram_chat_id
 		LEFT JOIN max_users mu ON mu.max_user_id = r.max_user_id
@@ -549,17 +546,16 @@ func (s *Store) ListRoutes(ctx context.Context) ([]map[string]any, error) {
 	for rows.Next() {
 		var id, chatID, userID int64
 		var enabled, ignore bool
-		var filter, status, groupTitle, firstName, lastName string
+		var filter, status, groupTitle, fullName string
 		var updated time.Time
-		if err := rows.Scan(&id, &chatID, &userID, &enabled, &filter, &ignore, &status, &updated, &groupTitle, &firstName, &lastName); err != nil {
+		if err := rows.Scan(&id, &chatID, &userID, &enabled, &filter, &ignore, &status, &updated, &groupTitle, &fullName); err != nil {
 			return nil, err
 		}
 		out = append(out, map[string]any{
 			"id":          id,
 			"chat_id":     chatID,
 			"max_user_id": userID,
-			"first_name":  firstName,
-			"last_name":   lastName,
+			"full_name":   fullName,
 			"enabled":     enabled,
 			"filter":      filter,
 			"ignore_bots": ignore,
@@ -585,8 +581,7 @@ func (s *Store) ListQueue(ctx context.Context, status string, limit int) ([]map[
 			j.available_at,
 			j.last_error,
 			j.updated_at,
-			COALESCE(mu.first_name, ''),
-			COALESCE(mu.last_name, '')
+			COALESCE(mu.full_name, '')
 		FROM delivery_jobs j
 		LEFT JOIN max_users mu ON mu.max_user_id = j.max_user_id
 		WHERE ($1 = '' OR status = $1)
@@ -601,10 +596,10 @@ func (s *Store) ListQueue(ctx context.Context, status string, limit int) ([]map[
 	out := make([]map[string]any, 0)
 	for rows.Next() {
 		var id, routeID, chatID, msgID, userID int64
-		var jobStatus, lastErr, firstName, lastName string
+		var jobStatus, lastErr, fullName string
 		var attempts, maxAttempts int
 		var available, updated time.Time
-		if err := rows.Scan(&id, &routeID, &chatID, &msgID, &userID, &jobStatus, &attempts, &maxAttempts, &available, &lastErr, &updated, &firstName, &lastName); err != nil {
+		if err := rows.Scan(&id, &routeID, &chatID, &msgID, &userID, &jobStatus, &attempts, &maxAttempts, &available, &lastErr, &updated, &fullName); err != nil {
 			return nil, err
 		}
 		out = append(out, map[string]any{
@@ -613,8 +608,7 @@ func (s *Store) ListQueue(ctx context.Context, status string, limit int) ([]map[
 			"chat_id":     chatID,
 			"message_id":  msgID,
 			"max_user_id": userID,
-			"first_name":  firstName,
-			"last_name":   lastName,
+			"full_name":   fullName,
 			"status":      jobStatus,
 			"attempts":    attempts,
 			"max_attempts": maxAttempts,
@@ -702,14 +696,13 @@ func (s *Store) RemoveUser(ctx context.Context, maxUserID int64) error {
 	return err
 }
 
-func (s *Store) UpdateMaxUserProfile(ctx context.Context, maxUserID int64, firstName, lastName string) error {
+func (s *Store) UpdateMaxUserName(ctx context.Context, maxUserID int64, fullName string) error {
 	_, err := s.pool.Exec(ctx, `
 		UPDATE max_users
-		SET first_name = NULLIF($2, ''),
-			last_name = NULLIF($3, ''),
+		SET full_name = NULLIF($2, ''),
 			updated_at = now()
 		WHERE max_user_id = $1
-	`, maxUserID, strings.TrimSpace(firstName), strings.TrimSpace(lastName))
+	`, maxUserID, strings.TrimSpace(fullName))
 	return err
 }
 

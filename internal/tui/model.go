@@ -343,6 +343,12 @@ func (m Model) startAction(act menuAction, entry listEntry) (tea.Model, tea.Cmd)
 		for i, f := range act.fields {
 			values[i] = f.defaultVal
 		}
+		if act.id == "user_rename" && len(values) > 0 {
+			current := strings.TrimSpace(fmt.Sprintf("%v", entry.row["full_name"]))
+			if current != "" && current != "<nil>" {
+				values[0] = current
+			}
+		}
 		m.form = actionForm{action: act, entry: entry, fields: act.fields, values: values, index: 0, ret: retMode}
 		m.mode = modeForm
 		return m, nil
@@ -792,6 +798,9 @@ func (m Model) buildSectionActions(section string) []menuAction {
 			{
 				id:    "invite_create",
 				label: "Создать инвайт (24ч)",
+				fields: []formField{
+					{key: "max_full_name", label: "Имя пользователя MAX", placeholder: "Например: Иван Петров"},
+				},
 			},
 		}
 	case "Routes":
@@ -825,7 +834,7 @@ func (m Model) buildRowActions(section string, entry listEntry) []menuAction {
 		return []menuAction{
 			{id: "user_block", label: "Заблокировать пользователя"},
 			{id: "user_unblock", label: "Разблокировать пользователя"},
-			{id: "user_refresh_profile", label: "Обновить профиль MAX"},
+			{id: "user_rename", label: "Переименовать", fields: []formField{{key: "full_name", label: "Имя пользователя MAX", placeholder: "Например: Иван Петров"}}},
 			{id: "user_test", label: "Отправить тест"},
 			{id: "user_remove", label: "Удалить пользователя", dangerous: true},
 		}
@@ -879,7 +888,7 @@ func (m Model) executeAction(section, actionID string, entry listEntry, values m
 		}
 		return svc.GroupDisable(chatID)
 	case "invite_create":
-		return svc.InviteCreate("entity", "general", "24h")
+		return svc.InviteCreate("entity", "general", "24h", values["max_full_name"])
 	case "invite_revoke":
 		id, err := intFromRow(entry.row, "id")
 		if err != nil {
@@ -938,12 +947,12 @@ func (m Model) executeAction(section, actionID string, entry listEntry, values m
 			return "", err
 		}
 		return svc.UserTest(id)
-	case "user_refresh_profile":
+	case "user_rename":
 		id, err := intFromRow(entry.row, "max_user_id")
 		if err != nil {
 			return "", err
 		}
-		return svc.UserRefreshProfile(id)
+		return svc.UserRename(id, values["full_name"])
 	case "queue_retry":
 		id, err := intFromRow(entry.row, "id")
 		if err != nil {
@@ -1042,25 +1051,9 @@ func parseInt64(raw, field string) (int64, error) {
 }
 
 func formatMaxUserName(row map[string]any) string {
-	lastName := strings.TrimSpace(fmt.Sprintf("%v", row["last_name"]))
-	firstName := strings.TrimSpace(fmt.Sprintf("%v", row["first_name"]))
-	if lastName == "<nil>" {
-		lastName = ""
-	}
-	if firstName == "<nil>" {
-		firstName = ""
-	}
-	lastName = strings.TrimSpace(lastName)
-	firstName = strings.TrimSpace(firstName)
-	if lastName != "" && firstName != "" {
-		r := []rune(firstName)
-		return fmt.Sprintf("%s %c.", lastName, r[0])
-	}
-	if lastName != "" {
-		return lastName
-	}
-	if firstName != "" {
-		return firstName
+	fullName := strings.TrimSpace(fmt.Sprintf("%v", row["full_name"]))
+	if fullName != "" && fullName != "<nil>" {
+		return fullName
 	}
 	return fmt.Sprintf("Пользователь MAX %v", row["max_user_id"])
 }

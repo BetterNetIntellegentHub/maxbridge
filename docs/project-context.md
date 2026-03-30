@@ -62,7 +62,7 @@ Path: `docs/project-context.md`
    - только counter `invalid_link_ignored_total`.
 5. Valid link:
    - consume invite (hash-based)
-   - upsert linked user (включая `first_name/last_name` из sender при наличии)
+   - upsert linked user (имя берётся из metadata инвайта `max_full_name`)
    - optional auto-route binding by scope
    - immediate test send в MAX
    - update user delivery status
@@ -123,16 +123,16 @@ Path: `docs/project-context.md`
    - `r` — обновить текущий список;
    - `q` — выход.
 8. Для `Добавить маршрут` в UI применяются безопасные defaults: `filter_mode=all`, `ignore_bot_messages=true` (без ручного ввода этих параметров).
-9. `Создать инвайт` в разделе `Invites` выполняется в one-click режиме с безопасным default TTL (`24h`) без обязательной формы ручного ввода.
+9. `Создать инвайт` в разделе `Invites` открывает форму с обязательным полем `Имя пользователя MAX`; TTL/scope остаются безопасными defaults (`24h`, `entity:general`).
 10. Использованные и отозванные инвайты удаляются из БД и не отображаются в списках TUI.
-11. В `MAX Users` доступен row action `Обновить профиль MAX`: сервис пытается подтянуть `first_name/last_name` через MAX API lookup (`/chats` + `/chats/{chatId}/members`) для выбранного `max_user_id`.
+11. В `MAX Users` доступен row action `Переименовать` для ручного обновления имени пользователя.
 
 ## 6. Схема данных (PostgreSQL)
 
 Основные таблицы:
 1. `telegram_groups`
-2. `max_users` (`first_name`, `last_name` для user-friendly отображения в TUI)
-3. `invites` (hash + raw code в metadata для операторского отображения в TUI; used/revoked инвайты удаляются)
+2. `max_users` (`full_name` для user-friendly отображения в TUI)
+3. `invites` (hash + raw code + `max_full_name` в metadata для операторского отображения в TUI; used/revoked инвайты удаляются)
 4. `routes`
 5. `dedupe_records` (unique `dedupe_key`)
 6. `delivery_jobs`
