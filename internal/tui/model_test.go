@@ -293,10 +293,10 @@ func TestFormatMaxUserName_FallbackToID(t *testing.T) {
 
 func TestFormatRowTitle_UsesDisplayNameForRoutesAndQueue(t *testing.T) {
 	routeRow := map[string]any{
-		"group_title":  "Группа A",
-		"chat_id":      int64(-1001),
-		"max_user_id":  int64(77),
-		"full_name":    "Иван Петров",
+		"group_title": "Группа A",
+		"chat_id":     int64(-1001),
+		"max_user_id": int64(77),
+		"full_name":   "Иван Петров",
 	}
 	title := formatRowTitle("Routes", routeRow)
 	if title != "Группа A -> Иван Петров" {
@@ -311,5 +311,50 @@ func TestFormatRowTitle_UsesDisplayNameForRoutesAndQueue(t *testing.T) {
 	queueTitle := formatRowTitle("Delivery Queue", queueRow)
 	if queueTitle != "Статус: retry | Иван Петров" {
 		t.Fatalf("unexpected queue title: %q", queueTitle)
+	}
+}
+
+func TestFormatRowTitle_InvitesIncludesNameWhenPresent(t *testing.T) {
+	row := map[string]any{
+		"raw_code":      "MB-ABC123",
+		"max_full_name": "Иван Петров",
+	}
+
+	got := formatRowTitle("Invites", row)
+	if got != "Код: MB-ABC123 | Иван Петров" {
+		t.Fatalf("unexpected invite title: %q", got)
+	}
+}
+
+func TestFormatRowDetail_InvitesIncludesNameWhenPresent(t *testing.T) {
+	row := map[string]any{
+		"id":            int64(7),
+		"scope":         "entity:general",
+		"expires_at":    "2026-03-30T10:00:00Z",
+		"max_full_name": "Иван Петров",
+	}
+
+	got := formatRowDetail("Invites", row)
+	if got != "id=7 имя=Иван Петров scope=entity:general до=2026-03-30T10:00:00Z" {
+		t.Fatalf("unexpected invite detail: %q", got)
+	}
+}
+
+func TestFormatRowTitleAndDetail_InvitesFallbackWithoutName(t *testing.T) {
+	row := map[string]any{
+		"id":         int64(8),
+		"raw_code":   "MB-XYZ789",
+		"scope":      "entity:general",
+		"expires_at": "2026-03-30T11:00:00Z",
+	}
+
+	title := formatRowTitle("Invites", row)
+	if title != "Код: MB-XYZ789" {
+		t.Fatalf("unexpected invite title fallback: %q", title)
+	}
+
+	detail := formatRowDetail("Invites", row)
+	if detail != "id=8 scope=entity:general до=2026-03-30T11:00:00Z" {
+		t.Fatalf("unexpected invite detail fallback: %q", detail)
 	}
 }

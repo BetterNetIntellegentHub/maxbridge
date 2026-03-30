@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"maxbridge/internal/domain"
@@ -17,7 +18,16 @@ import (
 var ErrInviteNotFound = errors.New("invite not found")
 
 type Store struct {
-	pool *pgxpool.Pool
+	pool dbPool
+}
+
+type dbPool interface {
+	Close()
+	Ping(ctx context.Context) error
+	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+	BeginTx(ctx context.Context, txOptions pgx.TxOptions) (pgx.Tx, error)
 }
 
 type QueueStats struct {
@@ -488,7 +498,7 @@ func (s *Store) ListMaxUsers(ctx context.Context) ([]map[string]any, error) {
 }
 
 func (s *Store) ListInvites(ctx context.Context) ([]map[string]any, error) {
-	rows, err := s.pool.Query(ctx, `SELECT id, scope_type, scope_id, expires_at, used_at, revoked_at, single_use, created_at, COALESCE(metadata->>'raw_code', '') FROM invites ORDER BY id DESC LIMIT 200`)
+	rows, err := s.pool.Query(ctx, `SELECT id, scope_type, scope_id, expires_at, used_at, revoked_at, single_use, created_at, COALESCE(metadata->>'raw_code', ''), COALESCE(metadata->>'max_full_name', '') FROM invites ORDER BY id DESC LIMIT 200`)
 	if err != nil {
 		return nil, err
 	}
@@ -501,19 +511,20 @@ func (s *Store) ListInvites(ctx context.Context) ([]map[string]any, error) {
 		var exp, created time.Time
 		var used, revoked *time.Time
 		var single bool
-		var rawCode string
-		if err := rows.Scan(&id, &scopeType, &scopeID, &exp, &used, &revoked, &single, &created, &rawCode); err != nil {
+		var rawCode, maxFullName string
+		if err := rows.Scan(&id, &scopeType, &scopeID, &exp, &used, &revoked, &single, &created, &rawCode, &maxFullName); err != nil {
 			return nil, err
 		}
 		out = append(out, map[string]any{
-			"id":         id,
-			"scope":      scopeType + ":" + scopeID,
-			"expires_at": exp,
-			"used_at":    used,
-			"revoked_at": revoked,
-			"single_use": single,
-			"created_at": created,
-			"raw_code":   rawCode,
+			"id":            id,
+			"scope":         scopeType + ":" + scopeID,
+			"expires_at":    exp,
+			"used_at":       used,
+			"revoked_at":    revoked,
+			"single_use":    single,
+			"created_at":    created,
+			"raw_code":      rawCode,
+			"max_full_name": maxFullName,
 		})
 	}
 	return out, rows.Err()
@@ -533,8 +544,9 @@ func (s *Store) ListRoutes(ctx context.Context) ([]map[string]any, error) {
 			tg.title,
 			COALESCE(mu.full_name, '')
 		FROM routes r
+		JOIN max_users mu ON mu.max_user_id = r.max_user_id
 		LEFT JOIN telegram_groups tg ON tg.telegram_chat_id = r.telegram_chat_id
-		LEFT JOIN max_users mu ON mu.max_user_id = r.max_user_id
+		WHERE mu.is_active = true
 		ORDER BY r.id
 	`)
 	if err != nil {
@@ -603,14 +615,14 @@ func (s *Store) ListQueue(ctx context.Context, status string, limit int) ([]map[
 			return nil, err
 		}
 		out = append(out, map[string]any{
-			"id":          id,
-			"route_id":    routeID,
-			"chat_id":     chatID,
-			"message_id":  msgID,
-			"max_user_id": userID,
-			"full_name":   fullName,
-			"status":      jobStatus,
-			"attempts":    attempts,
+			"id":           id,
+			"route_id":     routeID,
+			"chat_id":      chatID,
+			"message_id":   msgID,
+			"max_user_id":  userID,
+			"full_name":    fullName,
+			"status":       jobStatus,
+			"attempts":     attempts,
 			"max_attempts": maxAttempts,
 			"available_at": available,
 			"last_error":   lastErr,
@@ -692,8 +704,23 @@ func (s *Store) SetUserBlocked(ctx context.Context, maxUserID int64, blocked boo
 }
 
 func (s *Store) RemoveUser(ctx context.Context, maxUserID int64) error {
-	_, err := s.pool.Exec(ctx, `UPDATE max_users SET is_active = false, updated_at = now() WHERE max_user_id = $1`, maxUserID)
-	return err
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	_, err = tx.Exec(ctx, `UPDATE max_users SET is_active = false, updated_at = now() WHERE max_user_id = $1`, maxUserID)
+	if err != nil {
+		return err
+	}
+
+	_, err = tx.Exec(ctx, `UPDATE routes SET enabled = false, updated_at = now() WHERE max_user_id = $1`, maxUserID)
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit(ctx)
 }
 
 func (s *Store) UpdateMaxUserName(ctx context.Context, maxUserID int64, fullName string) error {

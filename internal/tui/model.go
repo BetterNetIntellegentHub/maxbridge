@@ -977,8 +977,15 @@ func formatRowTitle(section string, row map[string]any) string {
 	case "MAX Users":
 		return formatMaxUserName(row)
 	case "Invites":
+		inviteName := strings.TrimSpace(fmt.Sprintf("%v", row["max_full_name"]))
 		if raw := strings.TrimSpace(fmt.Sprintf("%v", row["raw_code"])); raw != "" && raw != "<nil>" {
+			if inviteName != "" && inviteName != "<nil>" {
+				return fmt.Sprintf("Код: %s | %s", raw, inviteName)
+			}
 			return fmt.Sprintf("Код: %s", raw)
+		}
+		if inviteName != "" && inviteName != "<nil>" {
+			return fmt.Sprintf("Область: %v | %s", row["scope"], inviteName)
 		}
 		return fmt.Sprintf("Область: %v", row["scope"])
 	case "Routes":
@@ -1006,6 +1013,10 @@ func formatRowDetail(section string, row map[string]any) string {
 	case "MAX Users":
 		return fmt.Sprintf("пользователь=%s max_user_id=%v id=%v заблокирован=%v последнее=%v", formatMaxUserName(row), row["max_user_id"], row["id"], row["blocked"], row["last"])
 	case "Invites":
+		inviteName := strings.TrimSpace(fmt.Sprintf("%v", row["max_full_name"]))
+		if inviteName != "" && inviteName != "<nil>" {
+			return fmt.Sprintf("id=%v имя=%s scope=%v до=%v", row["id"], inviteName, row["scope"], row["expires_at"])
+		}
 		return fmt.Sprintf("id=%v scope=%v до=%v", row["id"], row["scope"], row["expires_at"])
 	case "Routes":
 		return fmt.Sprintf("пользователь=%s max_user_id=%v id=%v chat_id=%v включен=%v фильтр=%v", formatMaxUserName(row), row["max_user_id"], row["id"], row["chat_id"], row["enabled"], row["filter"])
