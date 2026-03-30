@@ -454,7 +454,7 @@ func (s *Store) ListTelegramGroups(ctx context.Context) ([]map[string]any, error
 
 func (s *Store) ListMaxUsers(ctx context.Context) ([]map[string]any, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, max_user_id, first_name, last_name, is_active, is_blocked, linked_at, last_delivery_status, updated_at
+		SELECT id, max_user_id, COALESCE(first_name, ''), COALESCE(last_name, ''), is_active, is_blocked, linked_at, last_delivery_status, updated_at
 		FROM max_users
 		WHERE is_active = true
 		ORDER BY id
