@@ -302,6 +302,28 @@ func (s *AdminService) UserTest(maxUserID int64) (string, error) {
 	return "Тестовая отправка выполнена успешно.", nil
 }
 
+func (s *AdminService) UserRefreshProfile(maxUserID int64) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), s.timeout)
+	defer cancel()
+
+	profile, found, err := s.mx.LookupUserProfile(ctx, maxUserID)
+	if err != nil {
+		return "", fmt.Errorf("не удалось обновить профиль: %w", err)
+	}
+	if !found || strings.TrimSpace(profile.FirstName) == "" {
+		return "Профиль не найден в доступных чатах.", nil
+	}
+	if err := s.store.UpdateMaxUserProfile(ctx, maxUserID, profile.FirstName, profile.LastName); err != nil {
+		return "", err
+	}
+	name := formatMaxUserName(map[string]any{
+		"max_user_id": maxUserID,
+		"first_name":  profile.FirstName,
+		"last_name":   profile.LastName,
+	})
+	return fmt.Sprintf("Профиль обновлён: %s", name), nil
+}
+
 func (s *AdminService) QueueRetry(jobID int64) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), s.timeout)
 	defer cancel()
@@ -496,7 +518,7 @@ func (s *AdminService) execQueue(p []string) (string, error) {
 
 func (s *AdminService) execUser(p []string) (string, error) {
 	if len(p) < 3 {
-		return "Использование: user <block|unblock|remove|test> ...", nil
+		return "Использование: user <block|unblock|remove|test|refresh-profile> ...", nil
 	}
 	id, err := strconv.ParseInt(p[2], 10, 64)
 	if err != nil {
@@ -511,6 +533,8 @@ func (s *AdminService) execUser(p []string) (string, error) {
 		return s.UserRemove(id)
 	case "test":
 		return s.UserTest(id)
+	case "refresh-profile":
+		return s.UserRefreshProfile(id)
 	default:
 		return "Неизвестная подкоманда user.", nil
 	}
@@ -553,6 +577,7 @@ user block <max_user_id>
 user unblock <max_user_id>
 user remove <max_user_id>
 user test <max_user_id>
+user refresh-profile <max_user_id>
 
 queue retry <job_id>
 queue clear-completed <days>

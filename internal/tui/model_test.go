@@ -150,6 +150,24 @@ func TestActionsListEndsWithBack(t *testing.T) {
 	}
 }
 
+func TestMaxUsersHasRefreshProfileAction(t *testing.T) {
+	m := NewModel(nil)
+	actions := m.buildRowActions("MAX Users", listEntry{
+		kind: rowRecord,
+		row:  map[string]any{"max_user_id": int64(1)},
+	})
+	found := false
+	for _, a := range actions {
+		if a.id == "user_refresh_profile" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected user_refresh_profile action in MAX Users")
+	}
+}
+
 func TestSectionActionOpensFormDirectlyFromRows(t *testing.T) {
 	m := NewModel(nil)
 	m.mode = modeRows

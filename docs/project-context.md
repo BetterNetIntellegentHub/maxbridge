@@ -125,6 +125,7 @@ Path: `docs/project-context.md`
 8. Для `Добавить маршрут` в UI применяются безопасные defaults: `filter_mode=all`, `ignore_bot_messages=true` (без ручного ввода этих параметров).
 9. `Создать инвайт` в разделе `Invites` выполняется в one-click режиме с безопасным default TTL (`24h`) без обязательной формы ручного ввода.
 10. Использованные и отозванные инвайты удаляются из БД и не отображаются в списках TUI.
+11. В `MAX Users` доступен row action `Обновить профиль MAX`: сервис пытается подтянуть `first_name/last_name` через MAX API lookup (`/chats` + `/chats/{chatId}/members`) для выбранного `max_user_id`.
 
 ## 6. Схема данных (PostgreSQL)
 

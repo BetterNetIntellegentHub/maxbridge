@@ -825,6 +825,7 @@ func (m Model) buildRowActions(section string, entry listEntry) []menuAction {
 		return []menuAction{
 			{id: "user_block", label: "Заблокировать пользователя"},
 			{id: "user_unblock", label: "Разблокировать пользователя"},
+			{id: "user_refresh_profile", label: "Обновить профиль MAX"},
 			{id: "user_test", label: "Отправить тест"},
 			{id: "user_remove", label: "Удалить пользователя", dangerous: true},
 		}
@@ -937,6 +938,12 @@ func (m Model) executeAction(section, actionID string, entry listEntry, values m
 			return "", err
 		}
 		return svc.UserTest(id)
+	case "user_refresh_profile":
+		id, err := intFromRow(entry.row, "max_user_id")
+		if err != nil {
+			return "", err
+		}
+		return svc.UserRefreshProfile(id)
 	case "queue_retry":
 		id, err := intFromRow(entry.row, "id")
 		if err != nil {

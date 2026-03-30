@@ -702,6 +702,17 @@ func (s *Store) RemoveUser(ctx context.Context, maxUserID int64) error {
 	return err
 }
 
+func (s *Store) UpdateMaxUserProfile(ctx context.Context, maxUserID int64, firstName, lastName string) error {
+	_, err := s.pool.Exec(ctx, `
+		UPDATE max_users
+		SET first_name = NULLIF($2, ''),
+			last_name = NULLIF($3, ''),
+			updated_at = now()
+		WHERE max_user_id = $1
+	`, maxUserID, strings.TrimSpace(firstName), strings.TrimSpace(lastName))
+	return err
+}
+
 func (s *Store) RemoveGroup(ctx context.Context, chatID int64) error {
 	_, err := s.pool.Exec(ctx, `UPDATE telegram_groups SET is_enabled = false, updated_at = now() WHERE telegram_chat_id = $1`, chatID)
 	return err
