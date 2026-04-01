@@ -114,6 +114,7 @@ func readSecret(valueKey, fileKey string) string {
 	if path == "" {
 		return ""
 	}
+	// #nosec G304 -- path comes from operator-controlled *_FILE env vars.
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return ""
