@@ -7,7 +7,7 @@ require (
 	github.com/jackc/pgx/v5 v5.7.4
 	github.com/pashagolub/pgxmock/v4 v4.9.0
 	github.com/prometheus/client_golang v1.20.5
-	golang.org/x/time v0.8.0
+	golang.org/x/time v0.15.0
 )
 
 require (
