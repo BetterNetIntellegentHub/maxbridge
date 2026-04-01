@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+COMPOSE_FILE="${MAXBRIDGE_COMPOSE_FILE:-$REPO_ROOT/deploy/compose/docker-compose.yml}"
+
+usage() {
+  cat <<'EOF'
+Usage: ./scripts/maxbridge [tui]
+
+Open MaxBridge operator TUI.
+EOF
+}
+
+case "${1:-}" in
+  ""|"tui")
+    ;;
+  "-h"|"--help")
+    usage
+    exit 0
+    ;;
+  *)
+    echo "maxbridge: unsupported command: $1" >&2
+    usage >&2
+    exit 2
+    ;;
+esac
+
+if [[ ! -f "$COMPOSE_FILE" ]]; then
+  echo "maxbridge: compose file not found: $COMPOSE_FILE" >&2
+  exit 1
+fi
+
+if docker compose -f "$COMPOSE_FILE" ps --status running --services 2>/dev/null | grep -qx "bridge"; then
+  exec docker compose -f "$COMPOSE_FILE" exec bridge /app/tui
+fi
+
+exec docker compose -f "$COMPOSE_FILE" run --rm bridge /app/tui

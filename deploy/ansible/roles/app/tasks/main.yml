@@ -39,6 +39,14 @@
       BRIDGE_IMAGE={{ maxbridge_image }}
       NGINX_HTTPS_PORT={{ maxbridge_https_port }}
 
+- name: Install maxbridge TUI wrapper
+  template:
+    src: maxbridge.sh.j2
+    dest: /usr/local/bin/maxbridge
+    owner: root
+    group: root
+    mode: '0755'
+
 - name: Manage secrets on host
   when: maxbridge_manage_secrets | bool
   block:

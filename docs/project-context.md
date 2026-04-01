@@ -1,6 +1,6 @@
 ﻿# Project Context: MaxBridge
 
-Updated: 2026-03-27
+Updated: 2026-04-01
 Path: `docs/project-context.md`
 
 ## 1. Цель проекта
@@ -187,7 +187,7 @@ Path: `docs/project-context.md`
 1. Подготовить `deploy/compose/secrets/*`.
 2. `docker compose -f deploy/compose/docker-compose.yml up -d`
 3. `docker compose -f deploy/compose/docker-compose.yml run --rm bridge /app/bridge migrate up`
-4. `docker compose -f deploy/compose/docker-compose.yml run --rm bridge /app/tui`
+4. `./scripts/maxbridge` (если `bridge` запущен — используется `docker compose ... exec`, иначе fallback `docker compose ... run --rm`)
 
 ### 10.2 Прод
 1. `ansible-playbook -i deploy/ansible/inventory/hosts.yml deploy/ansible/bootstrap.yml`
@@ -197,8 +197,9 @@ Path: `docs/project-context.md`
 5. Для private registry задаются `maxbridge_registry_private=true`, `maxbridge_registry_username`, `maxbridge_registry_url`, а секрет `maxbridge_registry_token` хранится в Vault; перед pull Ansible делает `docker login` и валидирует наличие creds в private-режиме.
 6. При деплое нового образа задавать `maxbridge_image` явно (например `docker.io/argusvlad/maxbridge:<tag>`), иначе может использоваться default placeholder registry.
 7. Токен registry хранится в Vault; для публикации образов с control host нужны scope на push (`read/write`), иначе `docker push` вернёт `insufficient scopes`.
-8. После пересоздания `bridge` возможен кратковременный `502` на внешнем `health/ready` из-за stale upstream в Nginx; рабочий обход — рестарт `compose-nginx-1`.
-9. После успешного `docker push`/deploy выполняется безопасная очистка неиспользуемых артефактов:
+8. Ansible устанавливает `/usr/local/bin/maxbridge` (wrapper для TUI): если сервис `bridge` запущен — `exec`, иначе fallback `run --rm`.
+9. После пересоздания `bridge` возможен кратковременный `502` на внешнем `health/ready` из-за stale upstream в Nginx; рабочий обход — рестарт `compose-nginx-1`.
+10. После успешного `docker push`/deploy выполняется безопасная очистка неиспользуемых артефактов:
    - локально: Docker build cache, неиспользуемые образы, Go cache/modcache, `%TEMP%` (`AppData\\Local\\Temp`) и рабочие временные файлы;
    - на сервере: только неиспользуемые Docker images/cache/stopped containers;
    - активные контейнеры и используемые тома не удаляются.
@@ -207,6 +208,19 @@ Path: `docs/project-context.md`
 
 ### 10.3 Rollback
 1. Повторный deploy с предыдущим immutable tag.
+
+### 10.4 CI / GitHub Actions
+1. Основной workflow: `.github/workflows/ci.yml` (`secret-scan`, `vuln-scan`, `staticcheck`, `gosec`, `test-build`).
+2. Для `secret-scan` используется `gitleaks/gitleaks-action@v2` (blocking).
+3. Для воспроизводимости `vuln-scan` не используется `govulncheck@latest`; применяется pinned-инструмент:
+   - `go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...`
+4. В `vuln-scan` используется отдельный toolchain `actions/setup-go@v6` с `go-version: "1.25.8"` (ветка `1.25.x`) для стабильного security-сканирования.
+5. В `staticcheck` и `gosec` используются pinned-версии инструментов:
+   - `honnef.co/go/tools/cmd/staticcheck@v0.6.1`
+   - `github.com/securego/gosec/v2/cmd/gosec@v2.22.4`
+6. В `test-build` используется `actions/setup-go@v6` с `go-version-file: go.mod`, чтобы версия тестов/сборки была детерминирована репозиторием.
+7. Все CI checks остаются blocking для PR/merge; `continue-on-error` не используется.
+8. `CodeQL` выключен для текущего режима GitHub Free + private repository (infra-ограничение платформы). Возврат `CodeQL` возможен отдельным change set при смене плана/модели репозитория.
 
 ## 11. Backup/restore
 
