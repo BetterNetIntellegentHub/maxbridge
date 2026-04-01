@@ -11,6 +11,9 @@ dist/
 tmp/
 logs/
 
+# local GitHub CLI auth/config (must never be committed)
+.gh/
+
 # compose/ansible secrets (keep only template docs)
 deploy/compose/secrets/*
 !deploy/compose/secrets/README.md

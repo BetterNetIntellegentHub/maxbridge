@@ -58,7 +58,11 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	metricsSrv := &http.Server{Addr: cfg.MetricsAddr, Handler: promhttp.Handler()}
+	metricsSrv := &http.Server{
+		Addr:              cfg.MetricsAddr,
+		Handler:           promhttp.Handler(),
+		ReadHeaderTimeout: 5 * time.Second,
+	}
 	go func() {
 		if err := metricsSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Error("worker metrics server failed", "error", err)

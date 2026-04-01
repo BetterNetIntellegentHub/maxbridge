@@ -973,7 +973,7 @@ func formatRowTitle(section string, row map[string]any) string {
 		if title == "" || title == "<nil>" {
 			title = "Без названия"
 		}
-		return fmt.Sprintf("%s", title)
+			return title
 	case "MAX Users":
 		return formatMaxUserName(row)
 	case "Invites":
