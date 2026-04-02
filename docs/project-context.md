@@ -1,6 +1,6 @@
 ﻿# Project Context: MaxBridge
 
-Updated: 2026-04-01
+Updated: 2026-04-02
 Path: `docs/project-context.md`
 
 ## 1. Цель проекта
@@ -192,7 +192,7 @@ Path: `docs/project-context.md`
 ### 10.2 Прод
 1. `ansible-playbook -i deploy/ansible/inventory/hosts.yml deploy/ansible/bootstrap.yml`
 2. `ansible-playbook -i deploy/ansible/inventory/hosts.yml deploy/ansible/deploy.yml -e "maxbridge_version=<tag>" -e "maxbridge_domain=<domain>"`
-3. При `maxbridge_manage_secrets=true` Ansible сам управляет секретами на target host; внешние токены (`maxbridge_telegram_bot_token`, `maxbridge_max_bot_token`, `maxbridge_registry_token`) для CD приходят из GitHub Environment secrets в runtime `--extra-vars`.
+3. При `maxbridge_manage_secrets=true` Ansible сам управляет секретами на target host; внешние токены (`maxbridge_telegram_bot_token`, `maxbridge_max_bot_token`, `maxbridge_registry_token`) для CD приходят из GitLab CI/CD variables в runtime `--extra-vars`.
 4. Compose `.env` формируется Ansible (`BRIDGE_IMAGE`, `NGINX_HTTPS_PORT`), что позволяет переопределять host HTTPS port (например `8443`, если `443` занят).
 5. Для private registry задаются `maxbridge_registry_private=true`, `maxbridge_registry_username`, `maxbridge_registry_url`, а `maxbridge_registry_token` передается из environment secret; перед pull Ansible делает `docker login` и валидирует наличие creds в private-режиме.
 6. При деплое нового образа задавать `maxbridge_image` явно (например `docker.io/argusvlad/maxbridge:<tag>`), иначе может использоваться default placeholder registry.
@@ -209,38 +209,28 @@ Path: `docs/project-context.md`
 ### 10.3 Rollback
 1. Повторный deploy с предыдущим immutable tag.
 
-### 10.4 CI / GitHub Actions
-1. Основной workflow: `.github/workflows/ci.yml` (`actionlint`, `secret-scan`, `vuln-scan`, `staticcheck`, `gosec`, `test-build`).
-2. Для `secret-scan` используется `gitleaks/gitleaks-action@v2` (blocking).
-3. Для воспроизводимости `vuln-scan` не используется `govulncheck@latest`; применяется pinned-инструмент:
-   - `go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...`
-4. В `vuln-scan` используется отдельный toolchain `actions/setup-go@v6` с `go-version: "1.25.8"` (ветка `1.25.x`) для стабильного security-сканирования.
-5. В `staticcheck` и `gosec` используются pinned-версии инструментов:
-   - `honnef.co/go/tools/cmd/staticcheck@v0.6.1`
-   - `github.com/securego/gosec/v2/cmd/gosec@v2.22.4`
-6. В `test-build` используется `actions/setup-go@v6` с `go-version-file: go.mod`, чтобы версия тестов/сборки была детерминирована репозиторием.
-7. Все CI checks остаются blocking для PR/merge; `continue-on-error` не используется.
-8. `CodeQL` выключен для текущего режима GitHub Free + private repository (infra-ограничение платформы). Возврат `CodeQL` возможен отдельным change set при смене плана/модели репозитория.
-9. CD workflows:
-   - `.github/workflows/cd-image.yml`: build/push immutable tags (`sha-*`, `main`, `v*`), generate SBOM (Syft), blocking Trivy scan.
-   - `.github/workflows/cd-deploy.yml`: manual deploy (`workflow_dispatch`) через Ansible (`deploy.yml`) по выбранному `image_tag`.
-   - `.github/workflows/cd-rollback.yml`: manual rollback по предыдущему immutable `image_tag` через тот же deploy path.
-10. Secrets/vars contract:
-   - `shared` env secrets: `REGISTRY_USERNAME`, `REGISTRY_PASSWORD`.
-   - `staging`/`production` env secrets: `MAXBRIDGE_TELEGRAM_BOT_TOKEN`, `MAXBRIDGE_MAX_BOT_TOKEN`, `MAXBRIDGE_REGISTRY_TOKEN`.
-   - `staging`/`production` env vars: `MAXBRIDGE_DOMAIN`, `MAXBRIDGE_HTTPS_PORT`, `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_SSH_KEY_PATH`, `DEPLOY_SSH_KNOWN_HOSTS_PATH`.
-   - repo var: `MAXBRIDGE_IMAGE_REPO`.
-11. Runner routing:
-   - `cd-image` runs on GitHub-hosted runner.
-   - `cd-deploy` / `cd-rollback` run on self-hosted labels `self-hosted`, `Linux`, `X64`, `wsl-deploy` (WSL runner).
-12. Production guardrails for GitHub Free:
-   - actor allowlist: only `BetterNetIntellegentHub`;
-   - explicit confirmation input required:
-     - deploy: `production_confirm=DEPLOY_PRODUCTION`
-     - rollback: `production_confirm=ROLLBACK_PRODUCTION`.
-13. CD post-check behavior:
-   - external readiness probe uses `https://${MAXBRIDGE_DOMAIN}:${MAXBRIDGE_HTTPS_PORT}/health/ready`;
-   - queue sanity probe uses `https://${MAXBRIDGE_DOMAIN}:${MAXBRIDGE_HTTPS_PORT}/health/checks` and validates queue counters (`pending`, `retry`, `dead_letter`).
+### 10.4 CI/CD / GitLab
+1. Source of truth for CI/CD: `.gitlab-ci.yml`.
+2. GitHub workflows `cd-image/cd-deploy/cd-rollback` переведены в deprecated-заглушки; deploy path ведется только через GitLab.
+3. Pipeline stages:
+   - `lint_security`: actionlint, gitleaks, staticcheck, gosec, govulncheck;
+   - `test_build`: `go test`, сборка бинарей, docker build smoke;
+   - `image`: build/push immutable tags (`sha-*`, `main`, `v*`) + SBOM + blocking Trivy scan;
+   - `deploy`: manual `deploy/rollback` для `staging` и `production`.
+4. Secrets/vars contract (GitLab CI/CD Variables):
+   - protected/shared: `REGISTRY_USERNAME`, `REGISTRY_PASSWORD`, `MAXBRIDGE_IMAGE_REPO`;
+   - environment-scoped (`staging`/`production`): `MAXBRIDGE_TELEGRAM_BOT_TOKEN`, `MAXBRIDGE_MAX_BOT_TOKEN`, `MAXBRIDGE_REGISTRY_TOKEN`, `MAXBRIDGE_DOMAIN`, `MAXBRIDGE_HTTPS_PORT`, `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_SSH_KEY_PATH`, `DEPLOY_SSH_KNOWN_HOSTS_PATH`.
+5. Runner routing:
+   - deploy/rollback jobs use tag `wsl-deploy` (WSL self-hosted runner);
+   - deploy availability depends on runner online status.
+6. Production guardrails:
+   - allowlisted actor (`ALLOWED_PROD_USER`);
+   - explicit confirmation variable:
+     - deploy: `PRODUCTION_CONFIRM=DEPLOY_PRODUCTION`
+     - rollback: `PRODUCTION_CONFIRM=ROLLBACK_PRODUCTION`.
+7. CD post-check behavior:
+   - external readiness probe: `https://${MAXBRIDGE_DOMAIN}:${MAXBRIDGE_HTTPS_PORT}/health/ready`;
+   - queue sanity probe: `https://${MAXBRIDGE_DOMAIN}:${MAXBRIDGE_HTTPS_PORT}/health/checks` (`pending`, `retry`, `dead_letter`).
 
 ## 11. Backup/restore
 
@@ -266,6 +256,7 @@ Path: `docs/project-context.md`
 8. `docs/migration.md`
 9. `docs/backup-restore.md`
 10. `docs/assumptions.md`
+11. `docs/gitlab-migration.md`
 
 ## 13. Известные ограничения/незавершённость
 

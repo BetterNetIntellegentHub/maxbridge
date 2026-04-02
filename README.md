@@ -53,23 +53,24 @@ docker compose -f deploy/compose/docker-compose.yml run --rm bridge /app/bridge 
 
 ## Продакшен-деплой
 
-1. Настройте GitHub Environments:
-   - `shared`: secrets `REGISTRY_USERNAME`, `REGISTRY_PASSWORD`
-   - `staging`: secrets `MAXBRIDGE_TELEGRAM_BOT_TOKEN`, `MAXBRIDGE_MAX_BOT_TOKEN`, `MAXBRIDGE_REGISTRY_TOKEN`, variables `MAXBRIDGE_DOMAIN`, `MAXBRIDGE_HTTPS_PORT`, `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_SSH_KEY_PATH`, `DEPLOY_SSH_KNOWN_HOSTS_PATH`
-   - `production`: те же secrets/variables, что и `staging`
-2. Задайте repo variable `MAXBRIDGE_IMAGE_REPO` (например `docker.io/<user>/maxbridge`).
-3. Соберите и опубликуйте immutable image tag через workflow `cd-image`.
-4. Выполните deploy через workflow `cd-deploy`:
-   - `environment`: `staging`/`production`
-   - `image_tag`: `sha-*` или release tag
-   - `run_bootstrap`: `true` только для первичной подготовки host
-5. Проверьте:
+Source of truth для CI/CD: **GitLab Free**.
+GitHub для этого репозитория используется как read-only mirror (опционально).
+
+1. Настройте GitLab CI/CD Variables:
+   - protected/shared: `REGISTRY_USERNAME`, `REGISTRY_PASSWORD`, `MAXBRIDGE_IMAGE_REPO`
+   - environment `staging`: `MAXBRIDGE_TELEGRAM_BOT_TOKEN`, `MAXBRIDGE_MAX_BOT_TOKEN`, `MAXBRIDGE_REGISTRY_TOKEN`, `MAXBRIDGE_DOMAIN`, `MAXBRIDGE_HTTPS_PORT`, `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_SSH_KEY_PATH`, `DEPLOY_SSH_KNOWN_HOSTS_PATH`
+   - environment `production`: те же ключи, что и `staging`
+2. Запустите GitLab pipeline:
+   - `image_publish` для публикации immutable image tags (`sha-*`, `main`, `v*`)
+   - `deploy_staging`/`rollback_staging` вручную
+   - `deploy_production`/`rollback_production` вручную с confirm-переменной
+3. Проверьте:
 
 ```bash
 curl -k https://<domain>:8443/health/ready
 ```
 
-6. Откройте TUI на сервере:
+4. Откройте TUI на сервере:
 
 ```bash
 maxbridge
@@ -77,8 +78,8 @@ maxbridge
 
 ## Откат
 
-1. Запустите workflow `cd-rollback` с `environment` и предыдущим `image_tag`.
-2. Проверьте `/health/ready` и метрики очереди.
+1. Запустите GitLab job `rollback_staging` или `rollback_production` с `ROLLBACK_IMAGE_TAG`.
+2. Проверьте `/health/ready` и `/health/checks`.
 
 ## Восстановление на новом сервере
 
@@ -98,3 +99,4 @@ maxbridge
 5. `docs/refs.md`
 6. `docs/NOTES.md`
 7. `docs/adr/0001-architecture.md`
+8. `docs/gitlab-migration.md`
