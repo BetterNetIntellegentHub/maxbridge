@@ -33,15 +33,18 @@
    - migrate up;
    - compose up -d;
    - health checks.
-6. На target host Ansible устанавливает `/usr/local/bin/maxbridge` (операторский TUI wrapper).
-7. Manual fallback path:
+6. CD post-check model:
+   - external readiness check: `https://${MAXBRIDGE_DOMAIN}:${MAXBRIDGE_HTTPS_PORT}/health/ready`;
+   - metrics sanity check is executed over SSH on target host via `http://127.0.0.1:8080/metrics` (не через внешний Nginx endpoint).
+7. На target host Ansible устанавливает `/usr/local/bin/maxbridge` (операторский TUI wrapper).
+8. Manual fallback path:
    - допускается запуск playbook с Vault (`group_vars/all/vault.yml`) вне GitHub Actions.
-8. Production guardrails (GitHub Free fallback):
+9. Production guardrails (GitHub Free fallback):
    - only actor `BetterNetIntellegentHub` can run production deploy/rollback;
    - explicit confirmation input is mandatory:
      - deploy: `production_confirm=DEPLOY_PRODUCTION`
      - rollback: `production_confirm=ROLLBACK_PRODUCTION`
-9. Rollback:
+10. Rollback:
    - задеплоить предыдущий image tag;
    - `docker compose up -d`;
    - схема БД должна оставаться backward-compatible.
