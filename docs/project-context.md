@@ -240,7 +240,7 @@ Path: `docs/project-context.md`
      - rollback: `production_confirm=ROLLBACK_PRODUCTION`.
 13. CD post-check behavior:
    - external readiness probe uses `https://${MAXBRIDGE_DOMAIN}:${MAXBRIDGE_HTTPS_PORT}/health/ready`;
-   - metrics sanity probe is executed over SSH on target host via `curl -k https://127.0.0.1/metrics`, because Nginx `/metrics` is intentionally restricted to localhost.
+   - metrics sanity probe is executed over SSH on target host via `curl -k https://127.0.0.1:${MAXBRIDGE_HTTPS_PORT}/metrics`, because Nginx `/metrics` is intentionally restricted to localhost.
 
 ## 11. Backup/restore
 

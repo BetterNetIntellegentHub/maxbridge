@@ -190,7 +190,7 @@ jobs:
           )
 
           curl -ksSf "${base_url}/health/ready" >/dev/null
-          metrics="$(ssh "${ssh_opts[@]}" "${DEPLOY_USER}@${DEPLOY_HOST}" "curl -ksSf https://127.0.0.1/metrics")"
+          metrics="$(ssh "${ssh_opts[@]}" "${DEPLOY_USER}@${DEPLOY_HOST}" "curl -ksSf https://127.0.0.1:${https_port}/metrics")"
 
           printf '%s' "${metrics}" | grep -q '^queue_depth'
           printf '%s' "${metrics}" | grep -q '^dead_letter_total'
