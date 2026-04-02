@@ -196,20 +196,15 @@ jobs:
           set -euo pipefail
           https_port="${MAXBRIDGE_HTTPS_PORT:-8443}"
           base_url="https://${MAXBRIDGE_DOMAIN}:${https_port}"
-          ssh_opts=(
-            -i "${SSH_KEY_PATH}"
-            -o BatchMode=yes
-            -o IdentitiesOnly=yes
-            -o StrictHostKeyChecking=yes
-            -o UserKnownHostsFile="${KNOWN_HOSTS_PATH}"
-          )
 
           curl -ksSf "${base_url}/health/ready" >/dev/null
-          metrics="$(ssh "${ssh_opts[@]}" "${DEPLOY_USER}@${DEPLOY_HOST}" "curl -ksSf https://127.0.0.1:${https_port}/metrics")"
-
-          printf '%s' "${metrics}" | grep -q '^queue_depth'
-          printf '%s' "${metrics}" | grep -q '^dead_letter_total'
-          printf '%s' "${metrics}" | grep -q '^retry_total'
+          checks="$(curl -ksSf "${base_url}/health/checks")"
+          printf '%s' "${checks}" | jq -e '
+            (.queue | type == "object") and
+            (.queue.pending | type == "number") and
+            (.queue.retry | type == "number") and
+            (.queue.dead_letter | type == "number")
+          ' >/dev/null
 
       - name: Publish summary
         run: |

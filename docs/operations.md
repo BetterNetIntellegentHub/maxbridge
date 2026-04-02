@@ -35,7 +35,7 @@
    - health checks.
 6. CD post-check model:
    - external readiness check: `https://${MAXBRIDGE_DOMAIN}:${MAXBRIDGE_HTTPS_PORT}/health/ready`;
-   - metrics sanity check is executed over SSH on target host via `https://127.0.0.1:${MAXBRIDGE_HTTPS_PORT}/metrics` (localhost allowlist в Nginx).
+   - queue sanity check uses `https://${MAXBRIDGE_DOMAIN}:${MAXBRIDGE_HTTPS_PORT}/health/checks` and validates queue fields (`pending`, `retry`, `dead_letter`).
 7. На target host Ansible устанавливает `/usr/local/bin/maxbridge` (операторский TUI wrapper).
 8. Manual fallback path:
    - допускается запуск playbook с Vault (`group_vars/all/vault.yml`) вне GitHub Actions.
