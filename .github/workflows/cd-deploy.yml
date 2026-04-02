@@ -20,6 +20,11 @@ on:
         type: boolean
         required: true
         default: false
+      production_confirm:
+        description: "Type DEPLOY_PRODUCTION to allow production deploy"
+        type: string
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -30,11 +35,12 @@ concurrency:
 
 jobs:
   deploy:
-    runs-on: self-hosted
+    runs-on: [self-hosted, Linux, X64, wsl-deploy]
     environment: ${{ github.event.inputs.environment }}
     env:
       DEPLOY_ENV: ${{ github.event.inputs.environment }}
       IMAGE_TAG: ${{ github.event.inputs.image_tag }}
+      PRODUCTION_CONFIRM: ${{ github.event.inputs.production_confirm }}
       IMAGE_REPO: ${{ vars.MAXBRIDGE_IMAGE_REPO }}
       MAXBRIDGE_DOMAIN: ${{ vars.MAXBRIDGE_DOMAIN }}
       MAXBRIDGE_HTTPS_PORT: ${{ vars.MAXBRIDGE_HTTPS_PORT }}
@@ -62,6 +68,17 @@ jobs:
 
           if [ "${missing}" -ne 0 ]; then
             exit 1
+          fi
+
+          if [ "${DEPLOY_ENV}" = "production" ]; then
+            if [ "${GITHUB_ACTOR}" != "BetterNetIntellegentHub" ]; then
+              echo "Production deploy is allowed only for BetterNetIntellegentHub actor."
+              exit 1
+            fi
+            if [ "${PRODUCTION_CONFIRM}" != "DEPLOY_PRODUCTION" ]; then
+              echo "Set production_confirm=DEPLOY_PRODUCTION for production deploy."
+              exit 1
+            fi
           fi
 
       - name: Validate local SSH material on self-hosted runner

@@ -15,6 +15,11 @@ on:
         description: "Previously known-good container tag (example: sha-abc123def456 or v1.2.3)"
         type: string
         required: true
+      production_confirm:
+        description: "Type ROLLBACK_PRODUCTION to allow production rollback"
+        type: string
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -25,11 +30,12 @@ concurrency:
 
 jobs:
   rollback:
-    runs-on: self-hosted
+    runs-on: [self-hosted, Linux, X64, wsl-deploy]
     environment: ${{ github.event.inputs.environment }}
     env:
       DEPLOY_ENV: ${{ github.event.inputs.environment }}
       IMAGE_TAG: ${{ github.event.inputs.image_tag }}
+      PRODUCTION_CONFIRM: ${{ github.event.inputs.production_confirm }}
       IMAGE_REPO: ${{ vars.MAXBRIDGE_IMAGE_REPO }}
       MAXBRIDGE_DOMAIN: ${{ vars.MAXBRIDGE_DOMAIN }}
       MAXBRIDGE_HTTPS_PORT: ${{ vars.MAXBRIDGE_HTTPS_PORT }}
@@ -57,6 +63,17 @@ jobs:
 
           if [ "${missing}" -ne 0 ]; then
             exit 1
+          fi
+
+          if [ "${DEPLOY_ENV}" = "production" ]; then
+            if [ "${GITHUB_ACTOR}" != "BetterNetIntellegentHub" ]; then
+              echo "Production rollback is allowed only for BetterNetIntellegentHub actor."
+              exit 1
+            fi
+            if [ "${PRODUCTION_CONFIRM}" != "ROLLBACK_PRODUCTION" ]; then
+              echo "Set production_confirm=ROLLBACK_PRODUCTION for production rollback."
+              exit 1
+            fi
           fi
 
       - name: Validate local SSH material on self-hosted runner

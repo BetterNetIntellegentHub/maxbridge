@@ -230,6 +230,14 @@ Path: `docs/project-context.md`
    - `staging`/`production` env secrets: `MAXBRIDGE_TELEGRAM_BOT_TOKEN`, `MAXBRIDGE_MAX_BOT_TOKEN`, `MAXBRIDGE_REGISTRY_TOKEN`.
    - `staging`/`production` env vars: `MAXBRIDGE_DOMAIN`, `MAXBRIDGE_HTTPS_PORT`, `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_SSH_KEY_PATH`, `DEPLOY_SSH_KNOWN_HOSTS_PATH`.
    - repo var: `MAXBRIDGE_IMAGE_REPO`.
+11. Runner routing:
+   - `cd-image` runs on GitHub-hosted runner.
+   - `cd-deploy` / `cd-rollback` run on self-hosted labels `self-hosted`, `Linux`, `X64`, `wsl-deploy` (WSL runner).
+12. Production guardrails for GitHub Free:
+   - actor allowlist: only `BetterNetIntellegentHub`;
+   - explicit confirmation input required:
+     - deploy: `production_confirm=DEPLOY_PRODUCTION`
+     - rollback: `production_confirm=ROLLBACK_PRODUCTION`.
 
 ## 11. Backup/restore
 
