@@ -12,18 +12,27 @@
 
 ## 2. Production deploy (GitOps-lite)
 1. CI: lint/test/build immutable images, push registry tag.
-2. Ansible deploy:
+2. CD workflows:
+   - `.github/workflows/cd-image.yml`: build/push immutable tags + SBOM + blocking Trivy scan.
+   - `.github/workflows/cd-deploy.yml`: manual deploy by `environment` + `image_tag`.
+   - `.github/workflows/cd-rollback.yml`: manual rollback by `environment` + previous `image_tag`.
+3. Secrets and vars source in GitHub:
+   - `shared` environment secrets: `REGISTRY_USERNAME`, `REGISTRY_PASSWORD`.
+   - `staging`/`production` environment secrets: `MAXBRIDGE_TELEGRAM_BOT_TOKEN`, `MAXBRIDGE_MAX_BOT_TOKEN`, `MAXBRIDGE_REGISTRY_TOKEN`.
+   - `staging`/`production` environment vars: `MAXBRIDGE_DOMAIN`, `MAXBRIDGE_HTTPS_PORT`, `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_SSH_KEY_PATH`, `DEPLOY_SSH_KNOWN_HOSTS_PATH`.
+   - repo var: `MAXBRIDGE_IMAGE_REPO`.
+4. Ansible deploy path in workflows:
    - sync compose/env;
-   - sync/manage secrets (при `maxbridge_manage_secrets=true`);
+   - runtime `--extra-vars` with bot/registry secrets;
+   - sync/manage host secrets (при `maxbridge_manage_secrets=true`);
    - pull image tag;
    - migrate up;
    - compose up -d;
    - health checks.
-3. Secrets flow:
-   - внешние `maxbridge_telegram_bot_token` и `maxbridge_max_bot_token` задаются через Vault vars;
-   - остальные секреты (`postgres_password`, webhook secrets, invite pepper, backup key) Ansible может сгенерировать один раз и далее переиспользовать.
-4. На target host Ansible устанавливает `/usr/local/bin/maxbridge` (операторский TUI wrapper).
-5. Rollback:
+5. На target host Ansible устанавливает `/usr/local/bin/maxbridge` (операторский TUI wrapper).
+6. Manual fallback path:
+   - допускается запуск playbook с Vault (`group_vars/all/vault.yml`) вне GitHub Actions.
+7. Rollback:
    - задеплоить предыдущий image tag;
    - `docker compose up -d`;
    - схема БД должна оставаться backward-compatible.

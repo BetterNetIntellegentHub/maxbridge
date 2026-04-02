@@ -5,6 +5,10 @@
 2. Используются file-based secrets mounts (read-only).
 3. Секреты не передаются через CLI args.
 4. Логи редактируют поля token/secret/password/invite.
+5. Для CI/CD используются GitHub Environments secrets (не repo-level):
+   - `shared`: registry push credentials;
+   - `staging`/`production`: deploy bot/registry tokens.
+6. В workflow секреты маскируются и используются только runtime через временный vars-файл.
 
 ## Required secrets
 1. `DB_DSN_FILE`

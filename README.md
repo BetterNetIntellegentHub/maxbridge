@@ -53,39 +53,16 @@ docker compose -f deploy/compose/docker-compose.yml run --rm bridge /app/bridge 
 
 ## Продакшен-деплой
 
-1. Соберите и опубликуйте неизменяемый тег образа в CI.
-2. Поместите необходимые токены в Ansible Vault (`deploy/ansible/group_vars/all/vault.yml`):
-
-```yaml
-maxbridge_telegram_bot_token: "<telegram_token>"
-maxbridge_max_bot_token: "<max_token>"
-```
-
-Для приватных Docker Hub репозиториев также добавьте:
-
-```yaml
-maxbridge_registry_token: "<docker_hub_access_token>"
-```
-
-3. Запустите Ansible:
-
-```bash
-ansible-playbook -i deploy/ansible/inventory/hosts.yml deploy/ansible/bootstrap.yml
-ansible-playbook -i deploy/ansible/inventory/hosts.yml deploy/ansible/deploy.yml \
-  --ask-vault-pass \
-  -e "maxbridge_version=<tag>" \
-  -e "maxbridge_image=docker.io/<user>/maxbridge:<tag>" \
-  -e "maxbridge_domain=<domain>"
-```
-
-4. Если репозиторий образов приватный, задайте в `deploy/ansible/group_vars/all/base.yml`:
-
-```yaml
-maxbridge_registry_private: true
-maxbridge_registry_url: "https://index.docker.io/v1/"
-maxbridge_registry_username: "<docker_hub_user>"
-```
-
+1. Настройте GitHub Environments:
+   - `shared`: secrets `REGISTRY_USERNAME`, `REGISTRY_PASSWORD`
+   - `staging`: secrets `MAXBRIDGE_TELEGRAM_BOT_TOKEN`, `MAXBRIDGE_MAX_BOT_TOKEN`, `MAXBRIDGE_REGISTRY_TOKEN`, variables `MAXBRIDGE_DOMAIN`, `MAXBRIDGE_HTTPS_PORT`, `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_SSH_KEY_PATH`, `DEPLOY_SSH_KNOWN_HOSTS_PATH`
+   - `production`: те же secrets/variables, что и `staging`
+2. Задайте repo variable `MAXBRIDGE_IMAGE_REPO` (например `docker.io/<user>/maxbridge`).
+3. Соберите и опубликуйте immutable image tag через workflow `cd-image`.
+4. Выполните deploy через workflow `cd-deploy`:
+   - `environment`: `staging`/`production`
+   - `image_tag`: `sha-*` или release tag
+   - `run_bootstrap`: `true` только для первичной подготовки host
 5. Проверьте:
 
 ```bash
@@ -100,12 +77,7 @@ maxbridge
 
 ## Откат
 
-1. Задеплойте предыдущий тег образа:
-
-```bash
-ansible-playbook -i deploy/ansible/inventory/hosts.yml deploy/ansible/deploy.yml -e "maxbridge_version=<prev_tag>"
-```
-
+1. Запустите workflow `cd-rollback` с `environment` и предыдущим `image_tag`.
 2. Проверьте `/health/ready` и метрики очереди.
 
 ## Восстановление на новом сервере

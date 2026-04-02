@@ -1,0 +1,204 @@
+name: cd-deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Deployment environment"
+        type: choice
+        required: true
+        default: production
+        options:
+          - staging
+          - production
+      image_tag:
+        description: "Container tag to deploy (example: sha-abc123def456 or v1.2.3)"
+        type: string
+        required: true
+      run_bootstrap:
+        description: "Run bootstrap playbook before deploy"
+        type: boolean
+        required: true
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cd-deploy-${{ github.event.inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+    environment: ${{ github.event.inputs.environment }}
+    env:
+      DEPLOY_ENV: ${{ github.event.inputs.environment }}
+      IMAGE_TAG: ${{ github.event.inputs.image_tag }}
+      IMAGE_REPO: ${{ vars.MAXBRIDGE_IMAGE_REPO }}
+      MAXBRIDGE_DOMAIN: ${{ vars.MAXBRIDGE_DOMAIN }}
+      MAXBRIDGE_HTTPS_PORT: ${{ vars.MAXBRIDGE_HTTPS_PORT }}
+      DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
+      DEPLOY_USER: ${{ vars.DEPLOY_USER }}
+      DEPLOY_SSH_KEY_PATH: ${{ vars.DEPLOY_SSH_KEY_PATH }}
+      DEPLOY_SSH_KNOWN_HOSTS_PATH: ${{ vars.DEPLOY_SSH_KNOWN_HOSTS_PATH }}
+      MAXBRIDGE_TELEGRAM_BOT_TOKEN: ${{ secrets.MAXBRIDGE_TELEGRAM_BOT_TOKEN }}
+      MAXBRIDGE_MAX_BOT_TOKEN: ${{ secrets.MAXBRIDGE_MAX_BOT_TOKEN }}
+      MAXBRIDGE_REGISTRY_TOKEN: ${{ secrets.MAXBRIDGE_REGISTRY_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate deploy configuration
+        run: |
+          set -euo pipefail
+
+          missing=0
+          for var_name in IMAGE_REPO DEPLOY_HOST DEPLOY_USER IMAGE_TAG MAXBRIDGE_DOMAIN MAXBRIDGE_TELEGRAM_BOT_TOKEN MAXBRIDGE_MAX_BOT_TOKEN MAXBRIDGE_REGISTRY_TOKEN; do
+            if [ -z "${!var_name}" ]; then
+              echo "Missing required value: ${var_name}"
+              missing=1
+            fi
+          done
+
+          if [ "${missing}" -ne 0 ]; then
+            exit 1
+          fi
+
+      - name: Validate local SSH material on self-hosted runner
+        run: |
+          set -euo pipefail
+          ssh_key_path="${DEPLOY_SSH_KEY_PATH:-$HOME/.ssh/maxbridge_deploy}"
+          known_hosts_path="${DEPLOY_SSH_KNOWN_HOSTS_PATH:-$HOME/.ssh/known_hosts}"
+
+          if [ ! -f "${ssh_key_path}" ]; then
+            echo "Deploy SSH key is missing on runner: ${ssh_key_path}"
+            exit 1
+          fi
+
+          if [ ! -f "${known_hosts_path}" ]; then
+            echo "known_hosts file is missing on runner: ${known_hosts_path}"
+            exit 1
+          fi
+
+          chmod 600 "${ssh_key_path}"
+          chmod 600 "${known_hosts_path}"
+
+          echo "SSH_KEY_PATH=${ssh_key_path}" >> "${GITHUB_ENV}"
+          echo "KNOWN_HOSTS_PATH=${known_hosts_path}" >> "${GITHUB_ENV}"
+
+      - name: Ensure toolchain is available
+        run: |
+          set -euo pipefail
+
+          if ! command -v jq >/dev/null 2>&1; then
+            echo "jq is required on self-hosted runner"
+            exit 1
+          fi
+
+          if ! command -v ansible-playbook >/dev/null 2>&1; then
+            if command -v sudo >/dev/null 2>&1; then
+              sudo apt-get update
+              sudo apt-get install -y ansible
+            else
+              echo "ansible-playbook is missing and sudo is not available"
+              exit 1
+            fi
+          fi
+
+          ansible-galaxy collection install community.docker
+
+      - name: Build runtime vars for Ansible
+        run: |
+          set -euo pipefail
+
+          echo "::add-mask::${MAXBRIDGE_TELEGRAM_BOT_TOKEN}"
+          echo "::add-mask::${MAXBRIDGE_MAX_BOT_TOKEN}"
+          echo "::add-mask::${MAXBRIDGE_REGISTRY_TOKEN}"
+
+          runtime_vars_file="${RUNNER_TEMP}/ansible-runtime-vars.json"
+          https_port="${MAXBRIDGE_HTTPS_PORT:-8443}"
+
+          jq -n \
+            --arg version "${IMAGE_TAG}" \
+            --arg image "${IMAGE_REPO}:${IMAGE_TAG}" \
+            --arg domain "${MAXBRIDGE_DOMAIN}" \
+            --arg https_port "${https_port}" \
+            --arg health_url "https://${MAXBRIDGE_DOMAIN}:${https_port}/health/ready" \
+            --arg telegram_token "${MAXBRIDGE_TELEGRAM_BOT_TOKEN}" \
+            --arg max_token "${MAXBRIDGE_MAX_BOT_TOKEN}" \
+            --arg registry_token "${MAXBRIDGE_REGISTRY_TOKEN}" \
+            '{
+              maxbridge_version: $version,
+              maxbridge_image: $image,
+              maxbridge_domain: $domain,
+              maxbridge_https_port: ($https_port | tonumber),
+              maxbridge_healthcheck_url: $health_url,
+              maxbridge_telegram_bot_token: $telegram_token,
+              maxbridge_max_bot_token: $max_token,
+              maxbridge_registry_token: $registry_token
+            }' > "${runtime_vars_file}"
+
+          chmod 600 "${runtime_vars_file}"
+          echo "RUNTIME_VARS_FILE=${runtime_vars_file}" >> "${GITHUB_ENV}"
+
+      - name: Render CI inventory
+        run: |
+          set -euo pipefail
+          cat > "${RUNNER_TEMP}/hosts.yml" <<EOF
+          all:
+            hosts:
+              maxbridge-${DEPLOY_ENV}-1:
+                ansible_host: ${DEPLOY_HOST}
+                ansible_user: ${DEPLOY_USER}
+                ansible_ssh_private_key_file: ${SSH_KEY_PATH}
+                ansible_ssh_common_args: '-o StrictHostKeyChecking=yes -o UserKnownHostsFile=${KNOWN_HOSTS_PATH}'
+          EOF
+
+      - name: Optional bootstrap
+        if: ${{ github.event.inputs.run_bootstrap == 'true' }}
+        env:
+          ANSIBLE_HOST_KEY_CHECKING: "true"
+        run: |
+          set -euo pipefail
+          ansible-playbook \
+            -i "${RUNNER_TEMP}/hosts.yml" \
+            deploy/ansible/bootstrap.yml
+
+      - name: Deploy image with Ansible
+        env:
+          ANSIBLE_HOST_KEY_CHECKING: "true"
+        run: |
+          set -euo pipefail
+          ansible-playbook \
+            -i "${RUNNER_TEMP}/hosts.yml" \
+            deploy/ansible/deploy.yml \
+            --extra-vars "@${RUNTIME_VARS_FILE}"
+
+      - name: Post-deploy health and metrics sanity
+        run: |
+          set -euo pipefail
+          https_port="${MAXBRIDGE_HTTPS_PORT:-8443}"
+          base_url="https://${MAXBRIDGE_DOMAIN}:${https_port}"
+
+          curl -ksSf "${base_url}/health/ready" >/dev/null
+          metrics=$(curl -ksSf "${base_url}/metrics")
+
+          printf '%s' "${metrics}" | grep -q '^queue_depth'
+          printf '%s' "${metrics}" | grep -q '^dead_letter_total'
+          printf '%s' "${metrics}" | grep -q '^retry_total'
+
+      - name: Publish summary
+        run: |
+          {
+            echo "### Deployment completed"
+            echo
+            echo "Environment: ${DEPLOY_ENV}"
+            echo "Image: ${IMAGE_REPO}:${IMAGE_TAG}"
+            echo "Domain: ${MAXBRIDGE_DOMAIN}"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Cleanup sensitive runtime files
+        if: always()
+        run: |
+          rm -f "${RUNNER_TEMP}/ansible-runtime-vars.json"
+          rm -f "${RUNNER_TEMP}/ansible-runtime-vars.json.tmp"

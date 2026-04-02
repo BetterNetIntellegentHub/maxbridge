@@ -192,11 +192,11 @@ Path: `docs/project-context.md`
 ### 10.2 Прод
 1. `ansible-playbook -i deploy/ansible/inventory/hosts.yml deploy/ansible/bootstrap.yml`
 2. `ansible-playbook -i deploy/ansible/inventory/hosts.yml deploy/ansible/deploy.yml -e "maxbridge_version=<tag>" -e "maxbridge_domain=<domain>"`
-3. При `maxbridge_manage_secrets=true` Ansible сам управляет секретами на target host; внешние токены (`maxbridge_telegram_bot_token`, `maxbridge_max_bot_token`) задаются через Vault vars.
+3. При `maxbridge_manage_secrets=true` Ansible сам управляет секретами на target host; внешние токены (`maxbridge_telegram_bot_token`, `maxbridge_max_bot_token`, `maxbridge_registry_token`) для CD приходят из GitHub Environment secrets в runtime `--extra-vars`.
 4. Compose `.env` формируется Ansible (`BRIDGE_IMAGE`, `NGINX_HTTPS_PORT`), что позволяет переопределять host HTTPS port (например `8443`, если `443` занят).
-5. Для private registry задаются `maxbridge_registry_private=true`, `maxbridge_registry_username`, `maxbridge_registry_url`, а секрет `maxbridge_registry_token` хранится в Vault; перед pull Ansible делает `docker login` и валидирует наличие creds в private-режиме.
+5. Для private registry задаются `maxbridge_registry_private=true`, `maxbridge_registry_username`, `maxbridge_registry_url`, а `maxbridge_registry_token` передается из environment secret; перед pull Ansible делает `docker login` и валидирует наличие creds в private-режиме.
 6. При деплое нового образа задавать `maxbridge_image` явно (например `docker.io/argusvlad/maxbridge:<tag>`), иначе может использоваться default placeholder registry.
-7. Токен registry хранится в Vault; для публикации образов с control host нужны scope на push (`read/write`), иначе `docker push` вернёт `insufficient scopes`.
+7. Для публикации образов `cd-image` берет registry credentials из `shared` environment secrets.
 8. Ansible устанавливает `/usr/local/bin/maxbridge` (wrapper для TUI): если сервис `bridge` запущен — `exec`, иначе fallback `run --rm`.
 9. После пересоздания `bridge` возможен кратковременный `502` на внешнем `health/ready` из-за stale upstream в Nginx; рабочий обход — рестарт `compose-nginx-1`.
 10. После успешного `docker push`/deploy выполняется безопасная очистка неиспользуемых артефактов:
@@ -210,7 +210,7 @@ Path: `docs/project-context.md`
 1. Повторный deploy с предыдущим immutable tag.
 
 ### 10.4 CI / GitHub Actions
-1. Основной workflow: `.github/workflows/ci.yml` (`secret-scan`, `vuln-scan`, `staticcheck`, `gosec`, `test-build`).
+1. Основной workflow: `.github/workflows/ci.yml` (`actionlint`, `secret-scan`, `vuln-scan`, `staticcheck`, `gosec`, `test-build`).
 2. Для `secret-scan` используется `gitleaks/gitleaks-action@v2` (blocking).
 3. Для воспроизводимости `vuln-scan` не используется `govulncheck@latest`; применяется pinned-инструмент:
    - `go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...`
@@ -221,6 +221,15 @@ Path: `docs/project-context.md`
 6. В `test-build` используется `actions/setup-go@v6` с `go-version-file: go.mod`, чтобы версия тестов/сборки была детерминирована репозиторием.
 7. Все CI checks остаются blocking для PR/merge; `continue-on-error` не используется.
 8. `CodeQL` выключен для текущего режима GitHub Free + private repository (infra-ограничение платформы). Возврат `CodeQL` возможен отдельным change set при смене плана/модели репозитория.
+9. CD workflows:
+   - `.github/workflows/cd-image.yml`: build/push immutable tags (`sha-*`, `main`, `v*`), generate SBOM (Syft), blocking Trivy scan.
+   - `.github/workflows/cd-deploy.yml`: manual deploy (`workflow_dispatch`) через Ansible (`deploy.yml`) по выбранному `image_tag`.
+   - `.github/workflows/cd-rollback.yml`: manual rollback по предыдущему immutable `image_tag` через тот же deploy path.
+10. Secrets/vars contract:
+   - `shared` env secrets: `REGISTRY_USERNAME`, `REGISTRY_PASSWORD`.
+   - `staging`/`production` env secrets: `MAXBRIDGE_TELEGRAM_BOT_TOKEN`, `MAXBRIDGE_MAX_BOT_TOKEN`, `MAXBRIDGE_REGISTRY_TOKEN`.
+   - `staging`/`production` env vars: `MAXBRIDGE_DOMAIN`, `MAXBRIDGE_HTTPS_PORT`, `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_SSH_KEY_PATH`, `DEPLOY_SSH_KNOWN_HOSTS_PATH`.
+   - repo var: `MAXBRIDGE_IMAGE_REPO`.
 
 ## 11. Backup/restore
 
