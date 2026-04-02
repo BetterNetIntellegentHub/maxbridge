@@ -53,17 +53,17 @@ docker compose -f deploy/compose/docker-compose.yml run --rm bridge /app/bridge 
 
 ## Продакшен-деплой
 
-Source of truth для CI/CD: **GitLab Free**.
-GitHub для этого репозитория используется как read-only mirror (опционально).
+Source of truth для CI/CD: **SourceCraft Free**.
+GitHub/GitLab для этого репозитория используются как read-only mirrors (опционально).
 
-1. Настройте GitLab CI/CD Variables:
+1. Настройте SourceCraft secrets/variables:
    - protected/shared: `REGISTRY_USERNAME`, `REGISTRY_PASSWORD`, `MAXBRIDGE_IMAGE_REPO`
    - environment `staging`: `MAXBRIDGE_TELEGRAM_BOT_TOKEN`, `MAXBRIDGE_MAX_BOT_TOKEN`, `MAXBRIDGE_REGISTRY_TOKEN`, `MAXBRIDGE_DOMAIN`, `MAXBRIDGE_HTTPS_PORT`, `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_SSH_KEY_PATH`, `DEPLOY_SSH_KNOWN_HOSTS_PATH`
    - environment `production`: те же ключи, что и `staging`
-2. Запустите GitLab pipeline:
-   - `image_publish` для публикации immutable image tags (`sha-*`, `main`, `v*`)
-   - `deploy_staging`/`rollback_staging` вручную
-   - `deploy_production`/`rollback_production` вручную с confirm-переменной
+2. Запустите SourceCraft workflows из `.sourcecraft/ci.yaml`:
+   - `image-publish` для публикации immutable image tags (`sha-*`, `main`, `v*`)
+   - `deploy-staging`/`rollback-staging` вручную
+   - `deploy-production`/`rollback-production` вручную с confirm-переменной
 3. Проверьте:
 
 ```bash
@@ -78,7 +78,7 @@ maxbridge
 
 ## Откат
 
-1. Запустите GitLab job `rollback_staging` или `rollback_production` с `ROLLBACK_IMAGE_TAG`.
+1. Запустите SourceCraft workflow `rollback-staging` или `rollback-production` с `ROLLBACK_IMAGE_TAG`.
 2. Проверьте `/health/ready` и `/health/checks`.
 
 ## Восстановление на новом сервере
@@ -99,4 +99,4 @@ maxbridge
 5. `docs/refs.md`
 6. `docs/NOTES.md`
 7. `docs/adr/0001-architecture.md`
-8. `docs/gitlab-migration.md`
+8. `docs/sourcecraft-migration.md`

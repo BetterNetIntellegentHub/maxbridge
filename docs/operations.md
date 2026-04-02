@@ -11,13 +11,13 @@
    - если `bridge` не running, используется fallback `docker compose ... run --rm bridge /app/tui`.
 
 ## 2. Production deploy (GitOps-lite)
-1. CI/CD source of truth: GitLab (`.gitlab-ci.yml`).
+1. CI/CD source of truth: SourceCraft (`.sourcecraft/ci.yaml`).
 2. Pipeline stages:
    - `lint_security`: actionlint, gitleaks, staticcheck, gosec, govulncheck.
    - `test_build`: go test/build + docker build smoke.
    - `image`: immutable tags + SBOM + blocking Trivy scan.
    - `deploy`: manual jobs for staging/production deploy+rollback.
-3. Secrets and vars source in GitLab CI/CD Variables:
+3. Secrets and vars source in SourceCraft secrets/variables:
    - protected/shared: `REGISTRY_USERNAME`, `REGISTRY_PASSWORD`, `MAXBRIDGE_IMAGE_REPO`.
    - environment-scoped (`staging`/`production`): `MAXBRIDGE_TELEGRAM_BOT_TOKEN`, `MAXBRIDGE_MAX_BOT_TOKEN`, `MAXBRIDGE_REGISTRY_TOKEN`, `MAXBRIDGE_DOMAIN`, `MAXBRIDGE_HTTPS_PORT`, `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_SSH_KEY_PATH`, `DEPLOY_SSH_KNOWN_HOSTS_PATH`.
 4. Runner model:
@@ -37,7 +37,7 @@
    - queue sanity check uses `https://${MAXBRIDGE_DOMAIN}:${MAXBRIDGE_HTTPS_PORT}/health/checks` and validates queue fields (`pending`, `retry`, `dead_letter`).
 7. На target host Ansible устанавливает `/usr/local/bin/maxbridge` (операторский TUI wrapper).
 8. Manual fallback path:
-   - допускается запуск playbook с Vault (`group_vars/all/vault.yml`) вне GitLab pipeline.
+   - допускается запуск playbook с Vault (`group_vars/all/vault.yml`) вне SourceCraft workflows.
 9. Production guardrails:
    - only allowlisted user (`ALLOWED_PROD_USER`) can run production deploy/rollback;
    - explicit confirmation variable is mandatory:
@@ -49,17 +49,17 @@
    - схема БД должна оставаться backward-compatible.
 
 ## 2.1 WSL self-hosted runner operations
-1. Service name: `gitlab-runner.service`.
+1. Service name: `sourcecraft-worker.service` (или эквивалентный service name после установки worker).
 2. Status check:
-   - `systemctl status gitlab-runner.service`
+   - `systemctl status sourcecraft-worker.service`
 3. Logs:
-   - `journalctl -u gitlab-runner.service -n 200 --no-pager`
+   - `journalctl -u sourcecraft-worker.service -n 200 --no-pager`
 4. Restart:
-   - `sudo systemctl restart gitlab-runner.service`
+   - `sudo systemctl restart sourcecraft-worker.service`
 5. Temporary deploy freeze:
-   - `sudo systemctl stop gitlab-runner.service`
+   - `sudo systemctl stop sourcecraft-worker.service`
 6. Re-enable after freeze:
-   - `sudo systemctl start gitlab-runner.service`
+   - `sudo systemctl start sourcecraft-worker.service`
 
 ## 3. Retention policy
 1. Постоянно хранятся: `telegram_groups`, `max_users`, `routes`, `invites`.

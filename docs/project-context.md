@@ -192,7 +192,7 @@ Path: `docs/project-context.md`
 ### 10.2 Прод
 1. `ansible-playbook -i deploy/ansible/inventory/hosts.yml deploy/ansible/bootstrap.yml`
 2. `ansible-playbook -i deploy/ansible/inventory/hosts.yml deploy/ansible/deploy.yml -e "maxbridge_version=<tag>" -e "maxbridge_domain=<domain>"`
-3. При `maxbridge_manage_secrets=true` Ansible сам управляет секретами на target host; внешние токены (`maxbridge_telegram_bot_token`, `maxbridge_max_bot_token`, `maxbridge_registry_token`) для CD приходят из GitLab CI/CD variables в runtime `--extra-vars`.
+3. При `maxbridge_manage_secrets=true` Ansible сам управляет секретами на target host; внешние токены (`maxbridge_telegram_bot_token`, `maxbridge_max_bot_token`, `maxbridge_registry_token`) для CD приходят из SourceCraft secrets/variables в runtime `--extra-vars`.
 4. Compose `.env` формируется Ansible (`BRIDGE_IMAGE`, `NGINX_HTTPS_PORT`), что позволяет переопределять host HTTPS port (например `8443`, если `443` занят).
 5. Для private registry задаются `maxbridge_registry_private=true`, `maxbridge_registry_username`, `maxbridge_registry_url`, а `maxbridge_registry_token` передается из environment secret; перед pull Ansible делает `docker login` и валидирует наличие creds в private-режиме.
 6. При деплое нового образа задавать `maxbridge_image` явно (например `docker.io/argusvlad/maxbridge:<tag>`), иначе может использоваться default placeholder registry.
@@ -209,16 +209,16 @@ Path: `docs/project-context.md`
 ### 10.3 Rollback
 1. Повторный deploy с предыдущим immutable tag.
 
-### 10.4 CI/CD / GitLab
-1. Source of truth for CI/CD: `.gitlab-ci.yml`.
-2. GitHub workflows `cd-image/cd-deploy/cd-rollback` переведены в deprecated-заглушки; deploy path ведется только через GitLab.
+### 10.4 CI/CD / SourceCraft
+1. Source of truth for CI/CD: `.sourcecraft/ci.yaml`.
+2. GitHub workflows `cd-image/cd-deploy/cd-rollback` и `.gitlab-ci.yml` переведены в deprecated-заглушки; deploy path ведется только через SourceCraft.
 3. Pipeline stages:
    - `lint_security`: actionlint, gitleaks, staticcheck, gosec, govulncheck;
    - `test_build`: `go test`, сборка бинарей, docker build smoke;
    - `image`: build/push immutable tags (`sha-*`, `main`, `v*`) + SBOM + blocking Trivy scan;
    - `deploy`: manual `deploy/rollback` для `staging` и `production`.
-4. Secrets/vars contract (GitLab CI/CD Variables):
-   - protected/shared: `REGISTRY_USERNAME`, `REGISTRY_PASSWORD`, `MAXBRIDGE_IMAGE_REPO`;
+4. Secrets/vars contract (SourceCraft secrets/variables):
+   - shared: `REGISTRY_USERNAME`, `REGISTRY_PASSWORD`, `MAXBRIDGE_IMAGE_REPO`;
    - environment-scoped (`staging`/`production`): `MAXBRIDGE_TELEGRAM_BOT_TOKEN`, `MAXBRIDGE_MAX_BOT_TOKEN`, `MAXBRIDGE_REGISTRY_TOKEN`, `MAXBRIDGE_DOMAIN`, `MAXBRIDGE_HTTPS_PORT`, `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_SSH_KEY_PATH`, `DEPLOY_SSH_KNOWN_HOSTS_PATH`.
 5. Runner routing:
    - deploy/rollback jobs use tag `wsl-deploy` (WSL self-hosted runner);
@@ -256,7 +256,7 @@ Path: `docs/project-context.md`
 8. `docs/migration.md`
 9. `docs/backup-restore.md`
 10. `docs/assumptions.md`
-11. `docs/gitlab-migration.md`
+11. `docs/sourcecraft-migration.md`
 
 ## 13. Известные ограничения/незавершённость
 
