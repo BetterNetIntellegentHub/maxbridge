@@ -36,7 +36,9 @@ jobs:
       DEPLOY_ENV: ${{ github.event.inputs.environment }}
       IMAGE_TAG: ${{ github.event.inputs.image_tag }}
       PRODUCTION_CONFIRM: ${{ github.event.inputs.production_confirm }}
+      MAXBRIDGE_PROD_DEPLOY_ACTOR: ${{ vars.MAXBRIDGE_PROD_DEPLOY_ACTOR }}
       IMAGE_REPO: ${{ vars.MAXBRIDGE_IMAGE_REPO }}
+      MAXBRIDGE_REGISTRY_USERNAME: ${{ vars.MAXBRIDGE_REGISTRY_USERNAME }}
       MAXBRIDGE_DOMAIN: ${{ vars.MAXBRIDGE_DOMAIN }}
       MAXBRIDGE_HTTPS_PORT: ${{ vars.MAXBRIDGE_HTTPS_PORT }}
       DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
@@ -48,6 +50,8 @@ jobs:
       MAXBRIDGE_REGISTRY_TOKEN: ${{ secrets.MAXBRIDGE_REGISTRY_TOKEN }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Validate rollback configuration
         run: |
@@ -66,8 +70,12 @@ jobs:
           fi
 
           if [ "${DEPLOY_ENV}" = "production" ]; then
-            if [ "${GITHUB_ACTOR}" != "BetterNetIntellegentHub" ]; then
-              echo "Production rollback is allowed only for BetterNetIntellegentHub actor."
+            if [ -z "${MAXBRIDGE_PROD_DEPLOY_ACTOR}" ]; then
+              echo "Set environment or repository variable MAXBRIDGE_PROD_DEPLOY_ACTOR for production rollback guardrail."
+              exit 1
+            fi
+            if [ "${GITHUB_ACTOR}" != "${MAXBRIDGE_PROD_DEPLOY_ACTOR}" ]; then
+              echo "Production rollback is allowed only for configured MAXBRIDGE_PROD_DEPLOY_ACTOR."
               exit 1
             fi
             if [ "${PRODUCTION_CONFIRM}" != "ROLLBACK_PRODUCTION" ]; then
@@ -103,18 +111,18 @@ jobs:
           set -euo pipefail
 
           if ! command -v jq >/dev/null 2>&1; then
-            echo "jq is required on self-hosted runner"
+            echo "jq is required on self-hosted runner."
             exit 1
           fi
 
           if ! command -v ansible-playbook >/dev/null 2>&1; then
-            if command -v sudo >/dev/null 2>&1; then
-              sudo apt-get update
-              sudo apt-get install -y ansible
-            else
-              echo "ansible-playbook is missing and sudo is not available"
-              exit 1
-            fi
+            echo "ansible-playbook is missing. Pre-provision Ansible on the self-hosted runner."
+            exit 1
+          fi
+
+          if ! command -v ansible-galaxy >/dev/null 2>&1; then
+            echo "ansible-galaxy is missing. Install full Ansible distribution on the self-hosted runner."
+            exit 1
           fi
 
           ansible-galaxy collection install community.docker
@@ -129,6 +137,22 @@ jobs:
 
           runtime_vars_file="${RUNNER_TEMP}/ansible-runtime-vars.json"
           https_port="${MAXBRIDGE_HTTPS_PORT:-8443}"
+          registry_username="${MAXBRIDGE_REGISTRY_USERNAME}"
+
+          if [ -z "${registry_username}" ]; then
+            first_segment="${IMAGE_REPO%%/*}"
+            if [[ "${first_segment}" == *.* || "${first_segment}" == *:* || "${first_segment}" == "localhost" ]]; then
+              remainder="${IMAGE_REPO#*/}"
+              registry_username="${remainder%%/*}"
+            else
+              registry_username="${first_segment}"
+            fi
+          fi
+
+          if [ -z "${registry_username}" ] || [ "${registry_username}" = "${IMAGE_REPO}" ]; then
+            echo "Unable to resolve registry username. Set MAXBRIDGE_REGISTRY_USERNAME variable."
+            exit 1
+          fi
 
           jq -n \
             --arg version "${IMAGE_TAG}" \
@@ -136,6 +160,7 @@ jobs:
             --arg domain "${MAXBRIDGE_DOMAIN}" \
             --arg https_port "${https_port}" \
             --arg health_url "https://${MAXBRIDGE_DOMAIN}:${https_port}/health/ready" \
+            --arg registry_username "${registry_username}" \
             --arg telegram_token "${MAXBRIDGE_TELEGRAM_BOT_TOKEN}" \
             --arg max_token "${MAXBRIDGE_MAX_BOT_TOKEN}" \
             --arg registry_token "${MAXBRIDGE_REGISTRY_TOKEN}" \
@@ -145,6 +170,8 @@ jobs:
               maxbridge_domain: $domain,
               maxbridge_https_port: ($https_port | tonumber),
               maxbridge_healthcheck_url: $health_url,
+              maxbridge_registry_private: true,
+              maxbridge_registry_username: $registry_username,
               maxbridge_telegram_bot_token: $telegram_token,
               maxbridge_max_bot_token: $max_token,
               maxbridge_registry_token: $registry_token

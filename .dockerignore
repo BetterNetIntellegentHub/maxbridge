@@ -15,6 +15,14 @@ logs/
 *.out
 *.log
 coverage.out
+*.enc
+*.dump
+*.bak
+*.backup
+*.dmp
+*.core
+backup/
+restore/
 
 # Local env files
 .env

@@ -1,4 +1,4 @@
-# binaries
+# binaries / build outputs
 bin/
 dist/
 *.exe
@@ -7,18 +7,52 @@ dist/
 # local runtime
 .env
 .env.local
+.env.*
+!.env.example
 .secrets/
+/secrets/
 tmp/
 logs/
+
+# local caches
+.cache/
+.venv/
+.venv*/
 
 # local GitHub CLI auth/config (must never be committed)
 .gh/
 
-# compose/ansible secrets (keep only template docs)
+# compose/ansible local secrets and inventory
+# keep only sanitized docs/templates/examples
 deploy/compose/secrets/*
 !deploy/compose/secrets/README.md
+!deploy/compose/secrets/examples/
+!deploy/compose/secrets/examples/*.example
+!deploy/compose/secrets/examples/**
+
 deploy/ansible/group_vars/all/vault.yml
 deploy/ansible/inventory/hosts.yml
+
+# backup/restore/runtime sensitive artifacts
+*.enc
+*.dump
+*.bak
+*.backup
+backup/
+restore/
+*.dmp
+*.core
+*.trace
+*.pcap
+
+# key/cert material
+*.pem
+*.key
+*.crt
+*.p12
+*.kdbx
+**/id_rsa
+**/id_ed25519
 
 # editor / os
 .idea/
