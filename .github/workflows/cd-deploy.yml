@@ -266,19 +266,12 @@ jobs:
             (.queue.dead_letter | type == "number")
           ' >/dev/null
 
-          metrics_tmp="${RUNNER_TEMP}/metrics-staging.out"
-          metrics_status="$(curl -ksS -o "${metrics_tmp}" -w '%{http_code}' "${base_url}/metrics" || true)"
-          if [ "${metrics_status}" = "200" ]; then
-            metrics="$(cat "${metrics_tmp}")"
-            printf '%s' "${metrics}" | grep -q '^queue_depth '
-            printf '%s' "${metrics}" | grep -q '^telegram_updates_total '
-          elif [ "${metrics_status}" = "401" ] || [ "${metrics_status}" = "403" ]; then
-            echo "Metrics endpoint is protected (${metrics_status}); skipping public metrics assertions."
-          else
-            echo "Unexpected HTTP status from /metrics: ${metrics_status}"
-            exit 1
-          fi
-          rm -f "${metrics_tmp}"
+          ansible \
+            -i "${RUNNER_TEMP}/hosts.yml" \
+            all \
+            -m ansible.builtin.shell \
+            -a "set -euo pipefail; metrics=\$(curl -ksSf https://127.0.0.1:${https_port}/metrics); printf '%s' \"\${metrics}\" | grep -q '^queue_depth '; printf '%s' \"\${metrics}\" | grep -q '^telegram_updates_total '" \
+            -e "ansible_ssh_common_args=-o StrictHostKeyChecking=yes -o UserKnownHostsFile=${KNOWN_HOSTS_PATH}"
 
       - name: Publish summary
         run: |
@@ -493,19 +486,12 @@ jobs:
             (.queue.dead_letter | type == "number")
           ' >/dev/null
 
-          metrics_tmp="${RUNNER_TEMP}/metrics-production.out"
-          metrics_status="$(curl -ksS -o "${metrics_tmp}" -w '%{http_code}' "${base_url}/metrics" || true)"
-          if [ "${metrics_status}" = "200" ]; then
-            metrics="$(cat "${metrics_tmp}")"
-            printf '%s' "${metrics}" | grep -q '^queue_depth '
-            printf '%s' "${metrics}" | grep -q '^telegram_updates_total '
-          elif [ "${metrics_status}" = "401" ] || [ "${metrics_status}" = "403" ]; then
-            echo "Metrics endpoint is protected (${metrics_status}); skipping public metrics assertions."
-          else
-            echo "Unexpected HTTP status from /metrics: ${metrics_status}"
-            exit 1
-          fi
-          rm -f "${metrics_tmp}"
+          ansible \
+            -i "${RUNNER_TEMP}/hosts.yml" \
+            all \
+            -m ansible.builtin.shell \
+            -a "set -euo pipefail; metrics=\$(curl -ksSf https://127.0.0.1:${https_port}/metrics); printf '%s' \"\${metrics}\" | grep -q '^queue_depth '; printf '%s' \"\${metrics}\" | grep -q '^telegram_updates_total '" \
+            -e "ansible_ssh_common_args=-o StrictHostKeyChecking=yes -o UserKnownHostsFile=${KNOWN_HOSTS_PATH}"
 
       - name: Publish summary
         run: |
