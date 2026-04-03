@@ -74,6 +74,17 @@ jobs:
             exit 1
           fi
 
+          if [ "${IMAGE_TAG}" = "main" ]; then
+            echo "image_tag=main is not allowed for deploy. Use immutable tags only (sha-<12hex> or v*)."
+            exit 1
+          fi
+
+          if [[ ! "${IMAGE_TAG}" =~ ^sha-[0-9a-f]{12}$ && ! "${IMAGE_TAG}" =~ ^v[0-9A-Za-z._-]+$ ]]; then
+            echo "Unsupported image_tag format: ${IMAGE_TAG}"
+            echo "Allowed formats: sha-<12hex> or v* release tag."
+            exit 1
+          fi
+
           if [ "${DEPLOY_ENV}" = "production" ]; then
             if [ -z "${MAXBRIDGE_PROD_DEPLOY_ACTOR}" ]; then
               echo "Set environment or repository variable MAXBRIDGE_PROD_DEPLOY_ACTOR for production deploy guardrail."

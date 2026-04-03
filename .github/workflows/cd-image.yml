@@ -55,13 +55,6 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Login to registry
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ steps.registry.outputs.host }}
-          username: ${{ env.REGISTRY_USERNAME }}
-          password: ${{ env.REGISTRY_PASSWORD }}
-
       - name: Compute image tags
         id: tags
         run: |
@@ -79,13 +72,14 @@ jobs:
             echo "primary_tag=sha-${short_sha}"
           } >> "${GITHUB_OUTPUT}"
 
-      - name: Build and push image
+      - name: Build local image (gate-before-push)
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ./Dockerfile
-          push: true
-          tags: ${{ steps.tags.outputs.tags }}
+          push: false
+          load: true
+          tags: ${{ env.IMAGE_REPO }}:${{ steps.tags.outputs.primary_tag }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -94,7 +88,7 @@ jobs:
           set -euo pipefail
           SYFT_VERSION="v1.24.0"
           SYFT_ARCHIVE="syft_${SYFT_VERSION#v}_linux_amd64.tar.gz"
-          CHECKSUMS_FILE="checksums.txt"
+          CHECKSUMS_FILE="syft_${SYFT_VERSION#v}_checksums.txt"
           curl -sSfL -o "${SYFT_ARCHIVE}" "https://github.com/anchore/syft/releases/download/${SYFT_VERSION}/${SYFT_ARCHIVE}"
           curl -sSfL -o "${CHECKSUMS_FILE}" "https://github.com/anchore/syft/releases/download/${SYFT_VERSION}/${CHECKSUMS_FILE}"
           grep " ${SYFT_ARCHIVE}$" "${CHECKSUMS_FILE}" | sha256sum -c -
@@ -124,14 +118,48 @@ jobs:
           ignore-unfixed: false
           severity: HIGH,CRITICAL
 
+      - name: Login to registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ steps.registry.outputs.host }}
+          username: ${{ env.REGISTRY_USERNAME }}
+          password: ${{ env.REGISTRY_PASSWORD }}
+
+      - name: Push verified image tags
+        run: |
+          set -euo pipefail
+          primary_ref="${IMAGE_REPO}:${{ steps.tags.outputs.primary_tag }}"
+          printf '%s\n' '${{ steps.tags.outputs.tags }}' | while IFS= read -r tag; do
+            if [ -z "${tag}" ]; then
+              continue
+            fi
+            if [ "${tag}" != "${primary_ref}" ]; then
+              docker tag "${primary_ref}" "${tag}"
+            fi
+            docker push "${tag}"
+          done
+
       - name: Publish summary
         run: |
           {
-            echo "### Pushed image tags"
+            echo "### Verified and pushed image tags"
             echo
             echo '${{ steps.tags.outputs.tags }}'
             echo
             echo "Primary deployment tag: \`${{ steps.tags.outputs.primary_tag }}\`"
             echo
             echo "SBOM artifact: sbom-${{ steps.tags.outputs.primary_tag }}"
+            echo
+            echo "Security gates: Syft SBOM + Trivy scan passed before push"
           } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Cleanup local image and temp files
+        if: always()
+        run: |
+          set -euo pipefail
+          rm -f syft syft_*.tar.gz syft_*_checksums.txt sbom.spdx.json
+          printf '%s\n' '${{ steps.tags.outputs.tags }}' | while IFS= read -r tag; do
+            if [ -n "${tag}" ]; then
+              docker image rm -f "${tag}" >/dev/null 2>&1 || true
+            fi
+          done

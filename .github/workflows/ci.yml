@@ -143,3 +143,43 @@ jobs:
           go build ./cmd/tui
       - name: Build container
         run: docker build -t maxbridge:${{ github.sha }} .
+
+  image-security-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Build local image for security gate
+        run: |
+          set -euo pipefail
+          docker build -t maxbridge:gate-${{ github.sha }} .
+      - name: Install Syft (pinned + checksum verification)
+        run: |
+          set -euo pipefail
+          SYFT_VERSION="v1.24.0"
+          SYFT_ARCHIVE="syft_${SYFT_VERSION#v}_linux_amd64.tar.gz"
+          CHECKSUMS_FILE="syft_${SYFT_VERSION#v}_checksums.txt"
+          curl -sSfL -o "${SYFT_ARCHIVE}" "https://github.com/anchore/syft/releases/download/${SYFT_VERSION}/${SYFT_ARCHIVE}"
+          curl -sSfL -o "${CHECKSUMS_FILE}" "https://github.com/anchore/syft/releases/download/${SYFT_VERSION}/${CHECKSUMS_FILE}"
+          grep " ${SYFT_ARCHIVE}$" "${CHECKSUMS_FILE}" | sha256sum -c -
+          tar -xzf "${SYFT_ARCHIVE}" syft
+          install -m 0755 syft "${RUNNER_TEMP}/syft"
+          echo "${RUNNER_TEMP}" >> "${GITHUB_PATH}"
+      - name: Generate SBOM
+        run: |
+          set -euo pipefail
+          syft maxbridge:gate-${{ github.sha }} -o spdx-json=sbom.gate.spdx.json
+      - name: Scan local image (Trivy)
+        uses: aquasecurity/trivy-action@v0.35.0
+        with:
+          image-ref: maxbridge:gate-${{ github.sha }}
+          format: table
+          exit-code: '1'
+          ignore-unfixed: false
+          severity: HIGH,CRITICAL
+      - name: Cleanup gate artifacts
+        if: always()
+        run: |
+          rm -f syft syft_*.tar.gz syft_*_checksums.txt sbom.gate.spdx.json
+          docker image rm -f maxbridge:gate-${{ github.sha }} >/dev/null 2>&1 || true
