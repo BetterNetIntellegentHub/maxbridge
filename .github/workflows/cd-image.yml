@@ -1,8 +1,11 @@
 name: cd-image
 
 on:
-  push:
+  workflow_run:
+    workflows: ["ci"]
+    types: [completed]
     branches: [main]
+  push:
     tags: ["v*"]
   workflow_dispatch:
 
@@ -15,6 +18,7 @@ concurrency:
 
 jobs:
   build-and-push:
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     environment: shared
     env:
@@ -58,18 +62,31 @@ jobs:
       - name: Compute image tags
         id: tags
         run: |
-          short_sha="${GITHUB_SHA::12}"
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_run" ]; then
+            source_sha="${{ github.event.workflow_run.head_sha }}"
+            source_ref="refs/heads/${{ github.event.workflow_run.head_branch }}"
+            source_ref_type="branch"
+            source_ref_name="${{ github.event.workflow_run.head_branch }}"
+          else
+            source_sha="${GITHUB_SHA}"
+            source_ref="${GITHUB_REF}"
+            source_ref_type="${GITHUB_REF_TYPE}"
+            source_ref_name="${GITHUB_REF_NAME}"
+          fi
+
+          short_sha="${source_sha::12}"
           {
             echo "tags<<EOF"
             echo "${IMAGE_REPO}:sha-${short_sha}"
-            if [ "${GITHUB_REF}" = "refs/heads/main" ]; then
+            if [ "${source_ref}" = "refs/heads/main" ]; then
               echo "${IMAGE_REPO}:main"
             fi
-            if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
-              echo "${IMAGE_REPO}:${GITHUB_REF_NAME}"
+            if [ "${source_ref_type}" = "tag" ]; then
+              echo "${IMAGE_REPO}:${source_ref_name}"
             fi
             echo "EOF"
             echo "primary_tag=sha-${short_sha}"
+            echo "source_sha=${source_sha}"
           } >> "${GITHUB_OUTPUT}"
 
       - name: Build local image (gate-before-push)
@@ -147,6 +164,7 @@ jobs:
             echo '${{ steps.tags.outputs.tags }}'
             echo
             echo "Primary deployment tag: \`${{ steps.tags.outputs.primary_tag }}\`"
+            echo "Source commit: \`${{ steps.tags.outputs.source_sha }}\`"
             echo
             echo "SBOM artifact: sbom-${{ steps.tags.outputs.primary_tag }}"
             echo

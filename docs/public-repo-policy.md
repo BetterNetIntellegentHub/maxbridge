@@ -36,8 +36,8 @@ This policy defines what can and cannot be stored in the public MaxBridge reposi
 
 ## 6. Public cutover follow-ups (manual, outside Git)
 
-1. Maintain GitHub Environments protections and approval model.
-2. Maintain `MAXBRIDGE_PROD_DEPLOY_ACTOR` variable for production deploy/rollback guardrails.
+1. Maintain GitHub Environments protections compatible with the automated delivery flow.
+2. Keep emergency rollback access controls and runner permissions least-privileged.
 3. Keep extended operational runbooks outside this public repo.
 4. Reassess secret rotation posture periodically after public cutover.
 5. Keep branch protection required checks in sync with current CI workflow.

@@ -106,8 +106,10 @@ Path: `docs/project-context.md`
 1. Runtime: Docker Compose + Nginx + PostgreSQL.
 2. Provision/deploy: Ansible playbooks.
 3. CI/CD source of truth: GitHub Actions workflows в `.github/workflows/`.
-4. Required checks должны быть blocking для merge в `main`.
-5. Детальные environment-specific операции, runner setup и recovery-runbooks держать в private ops docs.
+4. Автоматический delivery pipeline: `ci` -> `cd-image` -> `cd-deploy` (staging checks -> production promotion).
+5. При провале production deploy/checks выполняется автоматический rollback на предыдущий `sha-*` image tag.
+6. Required checks должны быть blocking для merge в `main`.
+7. Детальные environment-specific операции, runner setup и recovery-runbooks держать в private ops docs.
 
 ## 8. Backup/restore
 

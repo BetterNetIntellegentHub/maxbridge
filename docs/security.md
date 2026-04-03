@@ -31,7 +31,7 @@
 
 ## 5. Manual follow-ups (outside Git)
 
-1. Maintain GitHub Environments protections and approvals.
-2. Maintain `MAXBRIDGE_PROD_DEPLOY_ACTOR` variable for production deploy/rollback allowlist.
-3. Keep required CI checks aligned with branch protection.
-4. Periodically review cutover-era secrets and decide on rotation.
+1. Maintain GitHub Environments protections compatible with automated deployment flow.
+2. Keep required CI checks aligned with branch protection.
+3. Periodically review cutover-era secrets and decide on rotation.
+4. Keep manual rollback controls and access restrictions for emergency operations.

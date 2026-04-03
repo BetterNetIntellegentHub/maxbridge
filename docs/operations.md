@@ -16,10 +16,13 @@ Detailed environment-specific procedures must remain in private ops docs.
 ## 3. Production model (high level)
 
 1. CI/CD source of truth: GitHub Actions workflows in `.github/workflows/`.
-2. Deploy path: immutable container image + Ansible deploy/rollback.
-3. Secrets are expected from secure runtime sources (GitHub Environments and/or private vault workflow).
-4. `main` must stay protected with required CI checks.
-5. Detailed runner topology, host-level service operations, and emergency procedures are private.
+2. Main delivery path is automated: `ci` -> `cd-image` -> `cd-deploy` (staging, then production).
+3. Deploy path: immutable container image + Ansible deploy/rollback.
+4. Production auto-rollback is executed when production deploy verification fails.
+5. Manual rollback workflow remains as emergency fallback.
+6. Secrets are expected from secure runtime sources (GitHub Environments and/or private vault workflow).
+7. `main` must stay protected with required CI checks.
+8. Detailed runner topology, host-level service operations, and emergency procedures are private.
 
 ## 4. Retention and queue guarantees
 

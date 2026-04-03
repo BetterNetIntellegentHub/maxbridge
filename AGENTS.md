@@ -87,12 +87,15 @@ Owner: Codex
 
 1. Runtime модель: single-server Docker Compose + Nginx + PostgreSQL.
 2. Provision/deploy: только через Ansible (без snowflake ручных правок как обязательного шага).
-3. Любые изменения deploy flow должны включать:
+3. Основной delivery flow должен оставаться автоматизированным:
+   - `ci` -> `cd-image` -> `cd-deploy` (staging -> production),
+   - при провале production-checks должен сохраняться автоматический rollback.
+4. Любые изменения deploy flow должны включать:
    - обновление Ansible/Compose
    - проверку rollback пути
    - обновление docs
-4. CI/CD source of truth: GitHub Actions; для `main` обязателен branch protection + required CI checks.
-5. Релизные бинарники (`bridge`, `worker`, `tui`) публиковать через GitHub Releases; не хранить их в git-tracked файлах.
+5. CI/CD source of truth: GitHub Actions; для `main` обязателен branch protection + required CI checks.
+6. Релизные бинарники (`bridge`, `worker`, `tui`) публиковать через GitHub Releases; не хранить их в git-tracked файлах.
 
 ## 9. Проверка перед завершением задачи
 
