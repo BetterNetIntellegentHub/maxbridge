@@ -11,21 +11,27 @@
    - если `bridge` не running, используется fallback `docker compose ... run --rm bridge /app/tui`.
 
 ## 2. Production deploy (GitOps-lite)
-1. CI: lint/test/build immutable images, push registry tag.
-2. CD workflows:
+1. Репозиторий переведен в public, `main` защищена branch protection:
+   - direct push запрещен;
+   - merge только через PR;
+   - merge разрешен только при успешных required CI checks.
+2. CI: lint/test/build immutable images, push registry tag.
+3. CD workflows:
    - `.github/workflows/cd-image.yml`: build/push immutable tags + SBOM + blocking Trivy scan.
    - `.github/workflows/cd-deploy.yml`: manual deploy by `environment` + `image_tag`.
    - `.github/workflows/cd-rollback.yml`: manual rollback by `environment` + previous `image_tag`.
-3. Secrets and vars source in GitHub:
+4. Release workflow:
+   - `.github/workflows/release.yml`: сборка `bridge`/`worker`/`tui` и публикация в GitHub Release по tag `v*`.
+5. Secrets and vars source in GitHub:
    - `shared` environment secrets: `REGISTRY_USERNAME`, `REGISTRY_PASSWORD`.
    - `staging`/`production` environment secrets: `MAXBRIDGE_TELEGRAM_BOT_TOKEN`, `MAXBRIDGE_MAX_BOT_TOKEN`, `MAXBRIDGE_REGISTRY_TOKEN`.
    - `staging`/`production` environment vars: `MAXBRIDGE_DOMAIN`, `MAXBRIDGE_HTTPS_PORT`, `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_SSH_KEY_PATH`, `DEPLOY_SSH_KNOWN_HOSTS_PATH`.
    - repo var: `MAXBRIDGE_IMAGE_REPO`.
-4. Runner model:
+6. Runner model:
    - `cd-image` runs on GitHub-hosted (`ubuntu-latest`).
    - `cd-deploy` / `cd-rollback` run on self-hosted runner labels: `self-hosted`, `Linux`, `X64`, `wsl-deploy`.
    - deploy availability depends on local WSL runner being online.
-5. Ansible deploy path in workflows:
+7. Ansible deploy path in workflows:
    - sync compose/env;
    - runtime `--extra-vars` with bot/registry secrets;
    - sync/manage host secrets (при `maxbridge_manage_secrets=true`);
@@ -33,21 +39,24 @@
    - migrate up;
    - compose up -d;
    - health checks.
-6. CD post-check model:
+8. CD post-check model:
    - external readiness check: `https://${MAXBRIDGE_DOMAIN}:${MAXBRIDGE_HTTPS_PORT}/health/ready`;
    - queue sanity check uses `https://${MAXBRIDGE_DOMAIN}:${MAXBRIDGE_HTTPS_PORT}/health/checks` and validates queue fields (`pending`, `retry`, `dead_letter`).
-7. На target host Ansible устанавливает `/usr/local/bin/maxbridge` (операторский TUI wrapper).
-8. Manual fallback path:
+9. На target host Ansible устанавливает `/usr/local/bin/maxbridge` (операторский TUI wrapper).
+10. Manual fallback path:
    - допускается запуск playbook с Vault (`group_vars/all/vault.yml`) вне GitHub Actions.
-9. Production guardrails (GitHub Free fallback):
+11. Production guardrails (GitHub Free fallback):
    - only actor `BetterNetIntellegentHub` can run production deploy/rollback;
    - explicit confirmation input is mandatory:
      - deploy: `production_confirm=DEPLOY_PRODUCTION`
      - rollback: `production_confirm=ROLLBACK_PRODUCTION`
-10. Rollback:
+12. Rollback:
    - задеплоить предыдущий image tag;
    - `docker compose up -d`;
    - схема БД должна оставаться backward-compatible.
+13. Security risk acceptance:
+   - секреты не ротировались в момент перевода в public по решению владельца;
+   - full-history gitleaks scan выполнен и не показал утечек.
 
 ## 2.1 WSL self-hosted runner operations
 1. Service name: `actions.runner.BetterNetIntellegentHub-maxbridge.wsl-maxbridge.service`.

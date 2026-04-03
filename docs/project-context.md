@@ -220,7 +220,7 @@ Path: `docs/project-context.md`
    - `github.com/securego/gosec/v2/cmd/gosec@v2.22.4`
 6. В `test-build` используется `actions/setup-go@v6` с `go-version-file: go.mod`, чтобы версия тестов/сборки была детерминирована репозиторием.
 7. Все CI checks остаются blocking для PR/merge; `continue-on-error` не используется.
-8. `CodeQL` выключен для текущего режима GitHub Free + private repository (infra-ограничение платформы). Возврат `CodeQL` возможен отдельным change set при смене плана/модели репозитория.
+8. Репозиторий переведен в public; branch protection для `main` использует required checks из `ci.yml` и блокирует direct push.
 9. CD workflows:
    - `.github/workflows/cd-image.yml`: build/push immutable tags (`sha-*`, `main`, `v*`), generate SBOM (Syft), blocking Trivy scan.
    - `.github/workflows/cd-deploy.yml`: manual deploy (`workflow_dispatch`) через Ansible (`deploy.yml`) по выбранному `image_tag`.
@@ -237,10 +237,16 @@ Path: `docs/project-context.md`
    - actor allowlist: only `BetterNetIntellegentHub`;
    - explicit confirmation input required:
      - deploy: `production_confirm=DEPLOY_PRODUCTION`
-     - rollback: `production_confirm=ROLLBACK_PRODUCTION`.
+    - rollback: `production_confirm=ROLLBACK_PRODUCTION`.
 13. CD post-check behavior:
    - external readiness probe uses `https://${MAXBRIDGE_DOMAIN}:${MAXBRIDGE_HTTPS_PORT}/health/ready`;
    - queue sanity probe uses `https://${MAXBRIDGE_DOMAIN}:${MAXBRIDGE_HTTPS_PORT}/health/checks` and validates queue counters (`pending`, `retry`, `dead_letter`).
+14. Release model:
+   - бинарники `bridge` / `worker` / `tui` публикуются через GitHub Release workflow (`.github/workflows/release.yml`) по tag `v*`.
+   - бинарники не хранятся в git-tracked файлах репозитория.
+15. Public cutover risk note:
+   - секреты не ротировались в рамках перевода в public по решению владельца (`risk-accepted`);
+   - gitleaks history/HEAD preflight выполнен, утечки не найдены.
 
 ## 11. Backup/restore
 

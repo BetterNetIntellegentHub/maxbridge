@@ -75,6 +75,12 @@ curl -k https://<domain>:8443/health/ready
 maxbridge
 ```
 
+## Релизные бинарники
+
+1. Бинарники не хранятся в git-tracked файлах репозитория.
+2. Публикация `bridge` / `worker` / `tui` выполняется через workflow `.github/workflows/release.yml`.
+3. Workflow запускается по git tag `v*` и прикрепляет артефакты к GitHub Release.
+
 ## Откат
 
 1. Запустите workflow `cd-rollback` с `environment` и предыдущим `image_tag`.
@@ -98,3 +104,4 @@ maxbridge
 5. `docs/refs.md`
 6. `docs/NOTES.md`
 7. `docs/adr/0001-architecture.md`
+8. `docs/security-preflight-2026-04-03.md`

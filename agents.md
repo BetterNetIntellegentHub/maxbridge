@@ -1,6 +1,6 @@
 ﻿# Agent Operating Rules for MaxBridge
 
-Updated: 2026-03-27
+Updated: 2026-04-03
 Owner: Codex
 
 ## 1. Главные принципы
@@ -74,7 +74,9 @@ Owner: Codex
    - обновление Ansible/Compose
    - проверку rollback пути
    - обновление docs
-4. После успешного `docker push` и/или deploy выполнять безопасную очистку неиспользуемых артефактов:
+4. CI/CD source of truth: GitHub Actions; для `main` обязателен branch protection + required CI checks.
+5. Релизные бинарники (`bridge`, `worker`, `tui`) публиковать через GitHub Releases; не хранить их в git-tracked файлах.
+6. После успешного `docker push` и/или deploy выполнять безопасную очистку неиспользуемых артефактов:
    - локально: `docker builder prune -af`, `docker image prune -af`, очистка `%TEMP%`/`AppData\\Local\\Temp` и рабочих временных директорий (`/tmp`, `/tmp/.ansible`);
    - Go cache policy: `go clean -cache -modcache` не выполнять по умолчанию; очищать Go build/module cache только по явному запросу пользователя или при согласованной задаче освобождения места;
    - на сервере: только prune неиспользуемых Docker cache/images/stopped containers без остановки активных контейнеров;

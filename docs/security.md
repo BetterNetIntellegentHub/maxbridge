@@ -10,6 +10,13 @@
    - `staging`/`production`: deploy bot/registry tokens.
 6. В workflow секреты маскируются и используются только runtime через временный vars-файл.
 
+## Public cutover (2026-04-03)
+1. Перед переводом репозитория в public выполнен preflight:
+   - `gitleaks git . --redact --no-banner` (история);
+   - `gitleaks dir . --redact --no-banner` (текущий HEAD).
+2. Результат preflight: утечки не обнаружены.
+3. Секреты не ротировались в рамках cutover по подтвержденному решению владельца (`risk-accepted`).
+
 ## Required secrets
 1. `DB_DSN_FILE`
 2. `INVITE_HASH_PEPPER_FILE`
