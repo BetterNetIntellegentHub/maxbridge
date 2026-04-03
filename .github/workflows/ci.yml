@@ -77,7 +77,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Check forbidden tracked files
-        run: ./scripts/check-forbidden-files.sh
+        run: bash ./scripts/check-forbidden-files.sh
 
   staticcheck:
     runs-on: ubuntu-latest
