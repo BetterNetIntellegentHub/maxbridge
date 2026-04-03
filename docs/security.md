@@ -1,46 +1,37 @@
-﻿# Security Notes
+# Security Notes (Public)
 
-## Secrets
-1. Секреты не хранятся в Git.
-2. Используются file-based secrets mounts (read-only).
-3. Секреты не передаются через CLI args.
-4. Логи редактируют поля token/secret/password/invite.
-5. Для CI/CD используются GitHub Environments secrets (не repo-level):
-   - `shared`: registry push credentials;
-   - `staging`/`production`: deploy bot/registry tokens.
-6. В workflow секреты маскируются и используются только runtime через временный vars-файл.
+## 1. Secrets and sensitive data
 
-## Public cutover (2026-04-03)
-1. Перед переводом репозитория в public выполнен preflight:
-   - `gitleaks git . --redact --no-banner` (история);
-   - `gitleaks dir . --redact --no-banner` (текущий HEAD).
-2. Результат preflight: утечки не обнаружены.
-3. Секреты не ротировались в рамках cutover по подтвержденному решению владельца (`risk-accepted`).
+1. Secrets must not be stored in git-tracked files.
+2. Runtime uses file-based secrets (`*_FILE`) and secure secret sources.
+3. Sensitive fields in logs must remain redacted (`token`, `secret`, `password`, `invite`).
+4. Public docs/examples must be template-only and sanitized.
 
-## Required secrets
-1. `DB_DSN_FILE`
-2. `INVITE_HASH_PEPPER_FILE`
-3. `TELEGRAM_BOT_TOKEN_FILE`
-4. `TELEGRAM_WEBHOOK_SECRET_FILE`
-5. `MAX_BOT_TOKEN_FILE`
-6. `MAX_WEBHOOK_SECRET_FILE`
-7. `BACKUP_ENCRYPTION_KEY_FILE`
+## 2. Public cutover status
 
-## Edge/network
-1. Публикуется только Nginx (443).
-2. Webhook endpoints: POST only.
-3. Проверка secret headers для Telegram/MAX.
-4. `client_max_body_size`, `limit_req`, read/write timeouts.
-5. PostgreSQL не публикуется наружу.
+1. Public cutover preflight used gitleaks scans (`git` and `dir`) and reported no findings.
+2. A previous owner decision accepted risk of not rotating secrets at cutover time (`risk-accepted`).
+3. Secret rotation posture should be periodically reassessed outside Git.
 
-## Host baseline
-1. Отдельный непривилегированный user.
-2. SSH только по ключам, root login disabled.
-3. Firewall: только 22/443.
-4. Автообновления security patches.
+## 3. Required operational controls
 
-## Data minimization
-1. Не хранить payload неавторизованных MAX-сообщений.
-2. Не хранить invalid invite attempts.
-3. Invite коды в БД только hash.
-4. Raw токены и raw invite values в лог не попадают.
+1. Enforce webhook secret headers for Telegram/MAX.
+2. Keep edge exposure minimal (only required public endpoints).
+3. Keep PostgreSQL non-public.
+4. Preserve data-minimization behavior:
+   - invalid/unauthorized MAX traffic: no reply + no DB write;
+   - invalid invite attempts are ignored;
+   - invite raw values are not logged.
+
+## 4. Public repo process controls
+
+1. Use `SECURITY.md` for disclosure policy.
+2. Use `docs/public-repo-policy.md` for hygiene and publication rules.
+3. Keep extended operational security runbooks in private documentation.
+
+## 5. Manual follow-ups (outside Git)
+
+1. Maintain GitHub Environments protections and approvals.
+2. Maintain `MAXBRIDGE_PROD_DEPLOY_ACTOR` variable for production deploy/rollback allowlist.
+3. Keep required CI checks aligned with branch protection.
+4. Periodically review cutover-era secrets and decide on rotation.

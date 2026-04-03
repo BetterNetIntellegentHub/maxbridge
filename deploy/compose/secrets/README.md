@@ -1,11 +1,17 @@
 # Secrets for local/staging/prod
 
-For Ansible deployments with `maxbridge_manage_secrets: true`, you usually do not edit this folder on the server.
-Secrets are generated/written by Ansible to `maxbridge_secrets_dir` and synced automatically.
+For Ansible deployments with `maxbridge_manage_secrets: true`, this folder is usually not edited on the server.
 
-Use this folder mainly when `maxbridge_manage_secrets: false` or for local Docker Compose runs.
+Use this folder primarily for:
+1. local Docker Compose runs;
+2. controller-side secret sync when `maxbridge_manage_secrets: false`.
 
-Put secrets as plain text files (one value per file):
+## Public-safe templates
+
+Template files without real values are provided in:
+`deploy/compose/secrets/examples/*.example`
+
+Copy templates to real secret filenames when needed:
 - `db_dsn`
 - `postgres_password`
 - `invite_hash_pepper`
@@ -15,10 +21,7 @@ Put secrets as plain text files (one value per file):
 - `max_webhook_secret`
 - `backup_encryption_key`
 
-`db_dsn` example:
-`postgres://maxbridge:<postgres_password>@postgres:5432/maxbridge?sslmode=disable`
-
 Rules:
-- Never commit real secret values to git.
-- Rotate webhook secrets and API tokens if they were ever exposed.
-- Prefer file permissions `0400`.
+1. Never commit real secret values.
+2. Prefer file permissions `0400`.
+3. Keep environment-specific secret management details in private ops docs.

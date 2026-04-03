@@ -18,6 +18,8 @@ jobs:
         goarch: [amd64]
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-go@v6
         with:

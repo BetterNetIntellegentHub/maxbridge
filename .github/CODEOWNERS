@@ -1,0 +1,10 @@
+# Default code owners
+* @BetterNetIntellegentHub
+
+# Security / delivery critical paths
+.github/workflows/ @BetterNetIntellegentHub
+deploy/ @BetterNetIntellegentHub
+docs/security.md @BetterNetIntellegentHub
+SECURITY.md @BetterNetIntellegentHub
+AGENTS.md @BetterNetIntellegentHub
+agents.md @BetterNetIntellegentHub

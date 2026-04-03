@@ -23,6 +23,8 @@ jobs:
       REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Validate image repository config
         run: |
@@ -87,11 +89,18 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Install Syft
+      - name: Install Syft (pinned + checksum verification)
         run: |
           set -euo pipefail
           SYFT_VERSION="v1.24.0"
-          curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin "${SYFT_VERSION}"
+          SYFT_ARCHIVE="syft_${SYFT_VERSION#v}_linux_amd64.tar.gz"
+          CHECKSUMS_FILE="checksums.txt"
+          curl -sSfL -o "${SYFT_ARCHIVE}" "https://github.com/anchore/syft/releases/download/${SYFT_VERSION}/${SYFT_ARCHIVE}"
+          curl -sSfL -o "${CHECKSUMS_FILE}" "https://github.com/anchore/syft/releases/download/${SYFT_VERSION}/${CHECKSUMS_FILE}"
+          grep " ${SYFT_ARCHIVE}$" "${CHECKSUMS_FILE}" | sha256sum -c -
+          tar -xzf "${SYFT_ARCHIVE}" syft
+          install -m 0755 syft "${RUNNER_TEMP}/syft"
+          echo "${RUNNER_TEMP}" >> "${GITHUB_PATH}"
 
       - name: Generate SBOM
         run: |

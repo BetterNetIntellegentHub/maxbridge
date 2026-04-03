@@ -1,0 +1,8 @@
+extends: default
+
+rules:
+  document-start: disable
+  line-length: disable
+  truthy: disable
+  braces: disable
+  new-line-at-end-of-file: disable

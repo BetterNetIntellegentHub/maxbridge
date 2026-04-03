@@ -1,104 +1,40 @@
-# Operations Runbook
+# Operations Runbook (Public)
 
-## 1. Локальный запуск
-1. Подготовить secret files (см. `deploy/compose/secrets/README.md`).
-2. Поднять стек: `docker compose -f deploy/compose/docker-compose.yml up -d`.
-3. Применить миграции: `docker compose -f deploy/compose/docker-compose.yml exec bridge /app/bridge migrate up`.
-4. Проверить `/health/ready`, `/metrics`.
-5. Открыть TUI основной командой: `./scripts/maxbridge`.
-6. Поведение wrapper:
-   - если `bridge` уже running, используется `docker compose ... exec bridge /app/tui`;
-   - если `bridge` не running, используется fallback `docker compose ... run --rm bridge /app/tui`.
+## 1. Purpose
 
-## 2. Production deploy (GitOps-lite)
-1. Репозиторий переведен в public, `main` защищена branch protection:
-   - direct push запрещен;
-   - merge только через PR;
-   - merge разрешен только при успешных required CI checks.
-2. CI: lint/test/build immutable images, push registry tag.
-3. CD workflows:
-   - `.github/workflows/cd-image.yml`: build/push immutable tags + SBOM + blocking Trivy scan.
-   - `.github/workflows/cd-deploy.yml`: manual deploy by `environment` + `image_tag`.
-   - `.github/workflows/cd-rollback.yml`: manual rollback by `environment` + previous `image_tag`.
-4. Release workflow:
-   - `.github/workflows/release.yml`: сборка `bridge`/`worker`/`tui` и публикация в GitHub Release по tag `v*`.
-5. Secrets and vars source in GitHub:
-   - `shared` environment secrets: `REGISTRY_USERNAME`, `REGISTRY_PASSWORD`.
-   - `staging`/`production` environment secrets: `MAXBRIDGE_TELEGRAM_BOT_TOKEN`, `MAXBRIDGE_MAX_BOT_TOKEN`, `MAXBRIDGE_REGISTRY_TOKEN`.
-   - `staging`/`production` environment vars: `MAXBRIDGE_DOMAIN`, `MAXBRIDGE_HTTPS_PORT`, `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_SSH_KEY_PATH`, `DEPLOY_SSH_KNOWN_HOSTS_PATH`.
-   - repo var: `MAXBRIDGE_IMAGE_REPO`.
-6. Runner model:
-   - `cd-image` runs on GitHub-hosted (`ubuntu-latest`).
-   - `cd-deploy` / `cd-rollback` run on self-hosted runner labels: `self-hosted`, `Linux`, `X64`, `wsl-deploy`.
-   - deploy availability depends on local WSL runner being online.
-7. Ansible deploy path in workflows:
-   - sync compose/env;
-   - runtime `--extra-vars` with bot/registry secrets;
-   - sync/manage host secrets (при `maxbridge_manage_secrets=true`);
-   - pull image tag;
-   - migrate up;
-   - compose up -d;
-   - health checks.
-8. CD post-check model:
-   - external readiness check: `https://${MAXBRIDGE_DOMAIN}:${MAXBRIDGE_HTTPS_PORT}/health/ready`;
-   - queue sanity check uses `https://${MAXBRIDGE_DOMAIN}:${MAXBRIDGE_HTTPS_PORT}/health/checks` and validates queue fields (`pending`, `retry`, `dead_letter`).
-9. На target host Ansible устанавливает `/usr/local/bin/maxbridge` (операторский TUI wrapper).
-10. Manual fallback path:
-   - допускается запуск playbook с Vault (`group_vars/all/vault.yml`) вне GitHub Actions.
-11. Production guardrails (GitHub Free fallback):
-   - only actor `BetterNetIntellegentHub` can run production deploy/rollback;
-   - explicit confirmation input is mandatory:
-     - deploy: `production_confirm=DEPLOY_PRODUCTION`
-     - rollback: `production_confirm=ROLLBACK_PRODUCTION`
-12. Rollback:
-   - задеплоить предыдущий image tag;
-   - `docker compose up -d`;
-   - схема БД должна оставаться backward-compatible.
-13. Security risk acceptance:
-   - секреты не ротировались в момент перевода в public по решению владельца;
-   - full-history gitleaks scan выполнен и не показал утечек.
+This document keeps a public-safe operational baseline.
+Detailed environment-specific procedures must remain in private ops docs.
 
-## 2.1 WSL self-hosted runner operations
-1. Service name: `actions.runner.BetterNetIntellegentHub-maxbridge.wsl-maxbridge.service`.
-2. Status check:
-   - `systemctl status actions.runner.BetterNetIntellegentHub-maxbridge.wsl-maxbridge.service`
-3. Logs:
-   - `journalctl -u actions.runner.BetterNetIntellegentHub-maxbridge.wsl-maxbridge.service -n 200 --no-pager`
-4. Restart:
-   - `sudo systemctl restart actions.runner.BetterNetIntellegentHub-maxbridge.wsl-maxbridge.service`
-5. Temporary deploy freeze:
-   - `sudo systemctl stop actions.runner.BetterNetIntellegentHub-maxbridge.wsl-maxbridge.service`
-6. Re-enable after freeze:
-   - `sudo systemctl start actions.runner.BetterNetIntellegentHub-maxbridge.wsl-maxbridge.service`
+## 2. Local operations
 
-## 3. Retention policy
-1. Постоянно хранятся: `telegram_groups`, `max_users`, `routes`, `invites`.
-2. Регулярно очищаются:
-   - `delivery_jobs`: completed/dead_letter по TTL;
-   - `delivery_attempts`: по TTL;
-   - `dedupe_records`: по `expires_at`.
-3. Payload minimization:
-   - payload completed jobs очищается после `RETENTION_PAYLOAD_HOURS`.
+1. Prepare local secret files (see `deploy/compose/secrets/README.md`).
+2. Start stack: `docker compose -f deploy/compose/docker-compose.yml up -d`.
+3. Apply migrations: `docker compose -f deploy/compose/docker-compose.yml exec bridge /app/bridge migrate up`.
+4. Check health endpoints (`/health/live`, `/health/ready`, `/health/checks`).
+5. Open TUI with `./scripts/maxbridge`.
 
-## 4. Queue и восстановление
-1. Stale `processing` jobs возвращаются в `retry` после lease timeout.
-2. Worker поднимает задачу повторно по правилам retry/backoff.
-3. Для ручного recovery использовать TUI command: `queue retry <job_id>`.
+## 3. Production model (high level)
 
-## 5. Health checks
-1. `GET /health/live`.
-2. `GET /health/ready`.
-3. `GET /health/checks`.
-4. В TUI раздел `Health Checks` показывает db/telegram/max/queue.
+1. CI/CD source of truth: GitHub Actions workflows in `.github/workflows/`.
+2. Deploy path: immutable container image + Ansible deploy/rollback.
+3. Secrets are expected from secure runtime sources (GitHub Environments and/or private vault workflow).
+4. `main` must stay protected with required CI checks.
+5. Detailed runner topology, host-level service operations, and emergency procedures are private.
 
-## 6. Операторские команды TUI
-1. `group add|probe|probeall|remove`
-2. `invite create|revoke`
-3. `route add|pause|resume|delete`
-4. `queue retry|clear-completed`
-5. `user block|unblock|remove|test`
+## 4. Retention and queue guarantees
 
-## 7. Backup schedule
-1. Backup запускается таймером `maxbridge-backup.timer`.
-2. По умолчанию расписание: `03:10 UTC/local` (переопределяется `maxbridge_backup_schedule`).
-3. Backup job читает `db_dsn` и `backup_encryption_key` из `maxbridge_secrets_dir`.
+1. `delivery_jobs` and `delivery_attempts` cleanup follows TTL policy.
+2. `dedupe_records` cleanup follows expiration policy.
+3. Worker recovers stale leased jobs and requeues safely.
+
+## 5. Backup/restore model
+
+1. Backups are encrypted and scheduled.
+2. Restore is validated regularly in non-production environment.
+3. Detailed backup storage and restoration operating procedures are private.
+
+## 6. Public safety notes
+
+1. Do not publish real infra identifiers, host paths, runner-local paths, or internal recovery details.
+2. Keep this document synchronized with `docs/project-context.md`.
+3. Store extended operational runbooks outside this public repository.
