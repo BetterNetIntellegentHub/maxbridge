@@ -159,7 +159,7 @@ jobs:
           set -euo pipefail
           SYFT_VERSION="v1.24.0"
           SYFT_ARCHIVE="syft_${SYFT_VERSION#v}_linux_amd64.tar.gz"
-          CHECKSUMS_FILE="syft_${SYFT_VERSION#v}_checksums.txt"
+          CHECKSUMS_FILE="syft_${SYFT_VERSION#v}_checksums_broken.txt"
           curl -sSfL -o "${SYFT_ARCHIVE}" "https://github.com/anchore/syft/releases/download/${SYFT_VERSION}/${SYFT_ARCHIVE}"
           curl -sSfL -o "${CHECKSUMS_FILE}" "https://github.com/anchore/syft/releases/download/${SYFT_VERSION}/${CHECKSUMS_FILE}"
           grep " ${SYFT_ARCHIVE}$" "${CHECKSUMS_FILE}" | sha256sum -c -
