@@ -41,9 +41,7 @@ jobs:
       - name: Staticcheck
         run: |
           go install honnef.co/go/tools/cmd/staticcheck@v0.6.1
-          gopath_bin="$(go env GOPATH)/bin"
-          goroot_bin="$(go env GOROOT)/bin"
-          export PATH="${gopath_bin}:${goroot_bin}:${PATH}"
+          export PATH="$(go env GOPATH)/bin:$(go env GOROOT)/bin:$PATH"
           staticcheck ./...
 
   gosec:
@@ -56,9 +54,7 @@ jobs:
       - name: Gosec
         run: |
           go install github.com/securego/gosec/v2/cmd/gosec@v2.22.4
-          gopath_bin="$(go env GOPATH)/bin"
-          goroot_bin="$(go env GOROOT)/bin"
-          export PATH="${gopath_bin}:${goroot_bin}:${PATH}"
+          export PATH="$(go env GOPATH)/bin:$(go env GOROOT)/bin:$PATH"
           gosec ./...
 
   vuln-scan:
