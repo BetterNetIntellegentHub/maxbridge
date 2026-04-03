@@ -223,4 +223,12 @@
     url: "{{ maxbridge_healthcheck_url }}"
     method: GET
     validate_certs: "{{ maxbridge_healthcheck_validate_certs }}"
-    status_code: 200
+    status_code:
+      - 200
+      - 502
+      - 503
+  register: maxbridge_healthcheck_result
+  until: maxbridge_healthcheck_result.status == 200
+  retries: "{{ maxbridge_healthcheck_retries }}"
+  delay: "{{ maxbridge_healthcheck_delay_seconds }}"
+  changed_when: false
