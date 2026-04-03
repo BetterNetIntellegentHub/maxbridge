@@ -10,4 +10,4 @@ jobs:
       - name: GitHub CD is disabled
         run: |
           echo "GitHub CD workflows are disabled."
-          echo "Use SourceCraft workflows (.sourcecraft/ci.yaml) for image build/publish."
+          echo "Use GitLab pipeline (source of truth) for image build/publish."

@@ -74,7 +74,7 @@ Owner: Codex
    - обновление Ansible/Compose
    - проверку rollback пути
    - обновление docs
-4. CI/CD source of truth: SourceCraft (`.sourcecraft/ci.yaml`); GitHub/GitLab CI/CD workflows используются только как deprecated-заглушки.
+4. CI/CD source of truth: GitLab (`.gitlab-ci.yml`); GitHub CD workflows используются только как deprecated-заглушки.
 5. После успешного `docker push` и/или deploy выполнять безопасную очистку неиспользуемых артефактов:
    - локально: `docker builder prune -af`, `docker image prune -af`, очистка `%TEMP%`/`AppData\\Local\\Temp` и рабочих временных директорий (`/tmp`, `/tmp/.ansible`);
    - Go cache policy: `go clean -cache -modcache` не выполнять по умолчанию; очищать Go build/module cache только по явному запросу пользователя или при согласованной задаче освобождения места;

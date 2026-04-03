@@ -5,8 +5,8 @@
 2. Используются file-based secrets mounts (read-only).
 3. Секреты не передаются через CLI args.
 4. Логи редактируют поля token/secret/password/invite.
-5. Для CI/CD используются SourceCraft secrets/variables:
-   - shared: registry credentials + image repo;
+5. Для CI/CD используются GitLab CI/CD Variables:
+   - protected/shared: registry credentials + image repo;
    - environment-scoped (`staging`/`production`): deploy bot/registry tokens и deploy vars.
 6. В workflow секреты маскируются и используются только runtime через временный vars-файл.
 

@@ -1,11 +1,292 @@
-# Deprecated: GitLab pipeline is disabled after migration to SourceCraft-only CI/CD.
-# Source of truth: .sourcecraft/ci.yaml
+workflow:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH'
+    - if: '$CI_COMMIT_TAG'
 
 stages:
-  - deprecated
+  - lint_security
+  - test_build
+  - image
+  - deploy
 
-gitlab_deprecated:
-  stage: deprecated
+variables:
+  GIT_DEPTH: "0"
+  GOTOOLCHAIN: "local"
+
+.default_go_job: &default_go_job
+  image: golang:1.25.8
+  before_script:
+    - go version
+
+actionlint:
+  <<: *default_go_job
+  stage: lint_security
   script:
-    - echo "GitLab CI is deprecated for this repository."
-    - echo "Use SourceCraft workflows from .sourcecraft/ci.yaml"
+    - go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.8
+
+secret_scan:
+  stage: lint_security
+  image: zricethezav/gitleaks:v8.24.2
+  script:
+    - gitleaks git --redact --no-banner --exit-code 1
+
+staticcheck:
+  <<: *default_go_job
+  stage: lint_security
+  script:
+    - go install honnef.co/go/tools/cmd/staticcheck@v0.6.1
+    - export PATH="$(go env GOPATH)/bin:$(go env GOROOT)/bin:$PATH"
+    - staticcheck ./...
+
+gosec:
+  <<: *default_go_job
+  stage: lint_security
+  script:
+    - go install github.com/securego/gosec/v2/cmd/gosec@v2.22.4
+    - export PATH="$(go env GOPATH)/bin:$(go env GOROOT)/bin:$PATH"
+    - gosec ./...
+
+vuln_scan:
+  <<: *default_go_job
+  stage: lint_security
+  script:
+    - go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
+
+test_go:
+  <<: *default_go_job
+  stage: test_build
+  script:
+    - go test ./...
+    - go build ./cmd/bridge
+    - go build ./cmd/worker
+    - go build ./cmd/tui
+
+build_container:
+  stage: test_build
+  image: docker:27.3.1
+  services:
+    - docker:27.3.1-dind
+  variables:
+    DOCKER_TLS_CERTDIR: "/certs"
+  script:
+    - docker version
+    - docker build -t maxbridge:${CI_COMMIT_SHA} .
+
+image_publish:
+  stage: image
+  image: docker:27.3.1
+  services:
+    - docker:27.3.1-dind
+  variables:
+    DOCKER_TLS_CERTDIR: "/certs"
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_COMMIT_TAG =~ /^v.*/'
+  script:
+    - |
+      set -euo pipefail
+
+      if [ -z "${MAXBRIDGE_IMAGE_REPO:-}" ] || [ -z "${REGISTRY_USERNAME:-}" ] || [ -z "${REGISTRY_PASSWORD:-}" ]; then
+        echo "MAXBRIDGE_IMAGE_REPO, REGISTRY_USERNAME and REGISTRY_PASSWORD are required"
+        exit 1
+      fi
+
+      short_sha="${CI_COMMIT_SHA:0:12}"
+      primary_ref="${MAXBRIDGE_IMAGE_REPO}:sha-${short_sha}"
+      tags=("${primary_ref}")
+
+      if [ "${CI_COMMIT_BRANCH:-}" = "main" ]; then
+        tags+=("${MAXBRIDGE_IMAGE_REPO}:main")
+      fi
+      if [ -n "${CI_COMMIT_TAG:-}" ]; then
+        tags+=("${MAXBRIDGE_IMAGE_REPO}:${CI_COMMIT_TAG}")
+      fi
+
+      repo="${MAXBRIDGE_IMAGE_REPO}"
+      first_segment="${repo%%/*}"
+      if [[ "${first_segment}" == *.* || "${first_segment}" == *:* || "${first_segment}" == "localhost" ]]; then
+        registry_host="${first_segment}"
+      else
+        registry_host="docker.io"
+      fi
+
+      echo "${REGISTRY_PASSWORD}" | docker login "${registry_host}" --username "${REGISTRY_USERNAME}" --password-stdin
+
+      build_args=()
+      for t in "${tags[@]}"; do
+        build_args+=("-t" "$t")
+      done
+
+      docker build "${build_args[@]}" .
+      for t in "${tags[@]}"; do
+        docker push "$t"
+      done
+
+      docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "${CI_PROJECT_DIR}:/work" \
+        anchore/syft:v1.24.0 "${primary_ref}" -o spdx-json=/work/sbom.spdx.json
+
+      docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+        aquasec/trivy:0.57.1 image --exit-code 1 --severity HIGH,CRITICAL --no-progress "${primary_ref}"
+  artifacts:
+    when: always
+    paths:
+      - sbom.spdx.json
+
+.deploy_template: &deploy_template
+  stage: deploy
+  tags:
+    - wsl-deploy
+  when: manual
+  allow_failure: false
+  script:
+    - |
+      set -euo pipefail
+
+      for var_name in MAXBRIDGE_IMAGE_REPO DEPLOY_HOST DEPLOY_USER MAXBRIDGE_DOMAIN MAXBRIDGE_TELEGRAM_BOT_TOKEN MAXBRIDGE_MAX_BOT_TOKEN MAXBRIDGE_REGISTRY_TOKEN; do
+        if [ -z "${!var_name:-}" ]; then
+          echo "Missing required variable: ${var_name}"
+          exit 1
+        fi
+      done
+
+      if ! command -v jq >/dev/null 2>&1; then
+        echo "jq is required on wsl-deploy runner"
+        exit 1
+      fi
+      if ! command -v ansible-playbook >/dev/null 2>&1; then
+        echo "ansible-playbook is required on wsl-deploy runner"
+        exit 1
+      fi
+
+      ssh_key_path="${DEPLOY_SSH_KEY_PATH:-$HOME/.ssh/maxbridge_deploy}"
+      known_hosts_path="${DEPLOY_SSH_KNOWN_HOSTS_PATH:-$HOME/.ssh/known_hosts}"
+
+      if [ ! -f "${ssh_key_path}" ] || [ ! -f "${known_hosts_path}" ]; then
+        echo "SSH key/known_hosts are missing on runner"
+        exit 1
+      fi
+
+      chmod 600 "${ssh_key_path}" "${known_hosts_path}"
+
+      tmp_dir="${CI_PROJECT_DIR}/.ci-runtime"
+      mkdir -p "${tmp_dir}"
+      runtime_vars_file="${tmp_dir}/ansible-runtime-vars.json"
+      inventory_file="${tmp_dir}/hosts.yml"
+
+      https_port="${MAXBRIDGE_HTTPS_PORT:-8443}"
+      health_url="https://${MAXBRIDGE_DOMAIN}:${https_port}/health/ready"
+
+      jq -n \
+        --arg version "${IMAGE_TAG}" \
+        --arg image "${MAXBRIDGE_IMAGE_REPO}:${IMAGE_TAG}" \
+        --arg domain "${MAXBRIDGE_DOMAIN}" \
+        --arg https_port "${https_port}" \
+        --arg health_url "${health_url}" \
+        --arg telegram_token "${MAXBRIDGE_TELEGRAM_BOT_TOKEN}" \
+        --arg max_token "${MAXBRIDGE_MAX_BOT_TOKEN}" \
+        --arg registry_token "${MAXBRIDGE_REGISTRY_TOKEN}" \
+        '{
+          maxbridge_version: $version,
+          maxbridge_image: $image,
+          maxbridge_domain: $domain,
+          maxbridge_https_port: ($https_port | tonumber),
+          maxbridge_healthcheck_url: $health_url,
+          maxbridge_telegram_bot_token: $telegram_token,
+          maxbridge_max_bot_token: $max_token,
+          maxbridge_registry_token: $registry_token
+        }' > "${runtime_vars_file}"
+
+      cat > "${inventory_file}" <<INV
+      all:
+        hosts:
+          maxbridge-${DEPLOY_ENV}-1:
+            ansible_host: ${DEPLOY_HOST}
+            ansible_user: ${DEPLOY_USER}
+            ansible_ssh_private_key_file: ${ssh_key_path}
+            ansible_ssh_common_args: '-o StrictHostKeyChecking=yes -o UserKnownHostsFile=${known_hosts_path}'
+      INV
+
+      ansible-galaxy collection install community.docker
+      ansible-playbook -i "${inventory_file}" deploy/ansible/deploy.yml --extra-vars "@${runtime_vars_file}"
+
+      base_url="https://${MAXBRIDGE_DOMAIN}:${https_port}"
+      curl -ksSf "${base_url}/health/ready" >/dev/null
+      checks="$(curl -ksSf "${base_url}/health/checks")"
+      printf '%s' "${checks}" | jq -e '(.queue | type == "object") and (.queue.pending | type == "number") and (.queue.retry | type == "number") and (.queue.dead_letter | type == "number")' >/dev/null
+  after_script:
+    - rm -rf "${CI_PROJECT_DIR}/.ci-runtime"
+
+deploy_staging:
+  <<: *deploy_template
+  environment:
+    name: staging
+  resource_group: maxbridge-staging
+  variables:
+    DEPLOY_ENV: staging
+    IMAGE_TAG: 'sha-${CI_COMMIT_SHORT_SHA}'
+
+rollback_staging:
+  <<: *deploy_template
+  environment:
+    name: staging
+  resource_group: maxbridge-staging
+  variables:
+    DEPLOY_ENV: staging
+    IMAGE_TAG: '${ROLLBACK_IMAGE_TAG}'
+  before_script:
+    - |
+      if [ -z "${ROLLBACK_IMAGE_TAG:-}" ]; then
+        echo "Set ROLLBACK_IMAGE_TAG when running rollback_staging"
+        exit 1
+      fi
+
+deploy_production:
+  <<: *deploy_template
+  environment:
+    name: production
+  resource_group: maxbridge-production
+  variables:
+    DEPLOY_ENV: production
+    IMAGE_TAG: '${PRODUCTION_IMAGE_TAG}'
+  before_script:
+    - |
+      set -euo pipefail
+      allowed_user="${ALLOWED_PROD_USER:-BetterNetIntellegentHub}"
+      if [ "${GITLAB_USER_LOGIN:-}" != "${allowed_user}" ]; then
+        echo "Production deploy is allowed only for ${allowed_user}"
+        exit 1
+      fi
+      if [ "${PRODUCTION_CONFIRM:-}" != "DEPLOY_PRODUCTION" ]; then
+        echo "Set PRODUCTION_CONFIRM=DEPLOY_PRODUCTION"
+        exit 1
+      fi
+      if [ -z "${PRODUCTION_IMAGE_TAG:-}" ]; then
+        echo "Set PRODUCTION_IMAGE_TAG"
+        exit 1
+      fi
+
+rollback_production:
+  <<: *deploy_template
+  environment:
+    name: production
+  resource_group: maxbridge-production
+  variables:
+    DEPLOY_ENV: production
+    IMAGE_TAG: '${ROLLBACK_IMAGE_TAG}'
+  before_script:
+    - |
+      set -euo pipefail
+      allowed_user="${ALLOWED_PROD_USER:-BetterNetIntellegentHub}"
+      if [ "${GITLAB_USER_LOGIN:-}" != "${allowed_user}" ]; then
+        echo "Production rollback is allowed only for ${allowed_user}"
+        exit 1
+      fi
+      if [ "${PRODUCTION_CONFIRM:-}" != "ROLLBACK_PRODUCTION" ]; then
+        echo "Set PRODUCTION_CONFIRM=ROLLBACK_PRODUCTION"
+        exit 1
+      fi
+      if [ -z "${ROLLBACK_IMAGE_TAG:-}" ]; then
+        echo "Set ROLLBACK_IMAGE_TAG"
+        exit 1
+      fi

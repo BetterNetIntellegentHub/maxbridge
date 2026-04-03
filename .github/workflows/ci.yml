@@ -1,13 +1,91 @@
-name: ci (deprecated)
+name: ci
 
 on:
-  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
 
 jobs:
-  deprecated:
+  actionlint:
     runs-on: ubuntu-latest
     steps:
-      - name: GitHub CI is disabled
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.25.8"
+      - name: Validate GitHub workflows
         run: |
-          echo "GitHub CI workflows are disabled."
-          echo "Use SourceCraft workflows (.sourcecraft/ci.yaml) for CI/CD checks."
+          go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.8
+
+  secret-scan:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Gitleaks scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  staticcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - name: Staticcheck
+        run: |
+          go install honnef.co/go/tools/cmd/staticcheck@v0.6.1
+          gopath_bin="$(go env GOPATH)/bin"
+          goroot_bin="$(go env GOROOT)/bin"
+          export PATH="${gopath_bin}:${goroot_bin}:${PATH}"
+          staticcheck ./...
+
+  gosec:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - name: Gosec
+        run: |
+          go install github.com/securego/gosec/v2/cmd/gosec@v2.22.4
+          gopath_bin="$(go env GOPATH)/bin"
+          goroot_bin="$(go env GOROOT)/bin"
+          export PATH="${gopath_bin}:${goroot_bin}:${PATH}"
+          gosec ./...
+
+  vuln-scan:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.25.8"
+      - name: Go vulnerability scan
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
+
+  test-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - name: Test
+        run: go test ./...
+      - name: Build
+        run: |
+          go build ./cmd/bridge
+          go build ./cmd/worker
+          go build ./cmd/tui
+      - name: Build container
+        run: docker build -t maxbridge:${{ github.sha }} .
