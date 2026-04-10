@@ -270,7 +270,7 @@ jobs:
             -i "${RUNNER_TEMP}/hosts.yml" \
             all \
             -m ansible.builtin.shell \
-            -a "set -euo pipefail; metrics=\$(curl -ksSf https://127.0.0.1:${https_port}/metrics); printf '%s' \"\${metrics}\" | grep -q '^queue_depth '; printf '%s' \"\${metrics}\" | grep -q '^telegram_updates_total '"
+            -a "set -eu; metrics=\$(curl -ksSf https://127.0.0.1:${https_port}/metrics); printf '%s' \"\${metrics}\" | grep -q '^queue_depth '; printf '%s' \"\${metrics}\" | grep -q '^telegram_updates_total '"
 
       - name: Publish summary
         run: |
@@ -489,7 +489,7 @@ jobs:
             -i "${RUNNER_TEMP}/hosts.yml" \
             all \
             -m ansible.builtin.shell \
-            -a "set -euo pipefail; metrics=\$(curl -ksSf https://127.0.0.1:${https_port}/metrics); printf '%s' \"\${metrics}\" | grep -q '^queue_depth '; printf '%s' \"\${metrics}\" | grep -q '^telegram_updates_total '"
+            -a "set -eu; metrics=\$(curl -ksSf https://127.0.0.1:${https_port}/metrics); printf '%s' \"\${metrics}\" | grep -q '^queue_depth '; printf '%s' \"\${metrics}\" | grep -q '^telegram_updates_total '"
 
       - name: Publish summary
         run: |
