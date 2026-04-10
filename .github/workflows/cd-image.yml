@@ -136,7 +136,7 @@ jobs:
           severity: HIGH,CRITICAL
 
       - name: Login to registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ${{ steps.registry.outputs.host }}
           username: ${{ env.REGISTRY_USERNAME }}
