@@ -17,7 +17,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-go@v6
         with:
-          go-version: "1.25.8"
+          go-version: "1.25.9"
       - name: Validate GitHub workflows
         run: |
           go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.8
@@ -121,7 +121,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-go@v6
         with:
-          go-version: "1.25.8"
+          go-version: "1.25.9"
       - name: Go vulnerability scan
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
 

@@ -1,6 +1,6 @@
 module maxbridge
 
-go 1.25.8
+go 1.25.9
 
 require (
 	github.com/charmbracelet/bubbletea v1.2.4
