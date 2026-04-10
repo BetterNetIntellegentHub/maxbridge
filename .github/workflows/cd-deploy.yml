@@ -270,7 +270,7 @@ jobs:
             -i "${RUNNER_TEMP}/hosts.yml" \
             all \
             -m ansible.builtin.shell \
-            -a "set -eu; metrics=\$(curl -ksSf https://127.0.0.1:${https_port}/metrics || true); if [ -z \"\${metrics}\" ]; then nginx_container=\$(docker ps --filter label=com.docker.compose.service=nginx --format '{{.Names}}' | head -n 1); [ -n \"\${nginx_container}\" ]; metrics=\$(docker exec \"\${nginx_container}\" wget -qO- http://bridge:8080/metrics); fi; printf '%s' \"\${metrics}\" | grep -q '^queue_depth '; printf '%s' \"\${metrics}\" | grep -q '^telegram_updates_total '"
+            -a "set -eu; metrics=\$(curl -ksSf https://127.0.0.1:${https_port}/metrics || true); if [ -z \"\${metrics}\" ]; then nginx_container=\$(docker ps --filter label=com.docker.compose.service=nginx -q | head -n 1); [ -n \"\${nginx_container}\" ]; metrics=\$(docker exec \"\${nginx_container}\" wget -qO- http://bridge:8080/metrics); fi; printf '%s' \"\${metrics}\" | grep -q '^queue_depth '; printf '%s' \"\${metrics}\" | grep -q '^telegram_updates_total '"
 
       - name: Publish summary
         run: |
@@ -489,7 +489,7 @@ jobs:
             -i "${RUNNER_TEMP}/hosts.yml" \
             all \
             -m ansible.builtin.shell \
-            -a "set -eu; metrics=\$(curl -ksSf https://127.0.0.1:${https_port}/metrics || true); if [ -z \"\${metrics}\" ]; then nginx_container=\$(docker ps --filter label=com.docker.compose.service=nginx --format '{{.Names}}' | head -n 1); [ -n \"\${nginx_container}\" ]; metrics=\$(docker exec \"\${nginx_container}\" wget -qO- http://bridge:8080/metrics); fi; printf '%s' \"\${metrics}\" | grep -q '^queue_depth '; printf '%s' \"\${metrics}\" | grep -q '^telegram_updates_total '"
+            -a "set -eu; metrics=\$(curl -ksSf https://127.0.0.1:${https_port}/metrics || true); if [ -z \"\${metrics}\" ]; then nginx_container=\$(docker ps --filter label=com.docker.compose.service=nginx -q | head -n 1); [ -n \"\${nginx_container}\" ]; metrics=\$(docker exec \"\${nginx_container}\" wget -qO- http://bridge:8080/metrics); fi; printf '%s' \"\${metrics}\" | grep -q '^queue_depth '; printf '%s' \"\${metrics}\" | grep -q '^telegram_updates_total '"
 
       - name: Publish summary
         run: |
