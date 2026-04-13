@@ -42,7 +42,7 @@ maxbridge_db_sslmode: "disable"
 # Post-deploy health check
 maxbridge_healthcheck_url: "https://{{ maxbridge_domain }}:{{ maxbridge_https_port }}/health/ready"
 maxbridge_healthcheck_validate_certs: false
-maxbridge_healthcheck_retries: 12
+maxbridge_healthcheck_retries: 24
 maxbridge_healthcheck_delay_seconds: 5
 
 # Backup schedule (systemd OnCalendar format)
