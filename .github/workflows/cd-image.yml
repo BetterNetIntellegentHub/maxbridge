@@ -1,0 +1,183 @@
+name: cd-image
+
+on:
+  workflow_run:
+    workflows: ["ci"]
+    types: [completed]
+    branches: [main]
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cd-image-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-and-push:
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    environment: shared
+    env:
+      IMAGE_REPO: ${{ vars.MAXBRIDGE_IMAGE_REPO }}
+      REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
+      REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Validate image repository config
+        run: |
+          if [ -z "${IMAGE_REPO}" ]; then
+            echo "Environment variable MAXBRIDGE_IMAGE_REPO is required (example: docker.io/<user>/maxbridge)."
+            exit 1
+          fi
+
+      - name: Validate registry credentials
+        run: |
+          if [ -z "${REGISTRY_USERNAME}" ] || [ -z "${REGISTRY_PASSWORD}" ]; then
+            echo "shared environment secrets REGISTRY_USERNAME and REGISTRY_PASSWORD are required."
+            exit 1
+          fi
+
+      - name: Resolve registry host
+        id: registry
+        run: |
+          repo="${IMAGE_REPO}"
+          first_segment="${repo%%/*}"
+          if [[ "${first_segment}" == *.* || "${first_segment}" == *:* || "${first_segment}" == "localhost" ]]; then
+            registry_host="${first_segment}"
+          else
+            registry_host="docker.io"
+          fi
+          echo "host=${registry_host}" >> "${GITHUB_OUTPUT}"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Compute image tags
+        id: tags
+        run: |
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_run" ]; then
+            source_sha="${{ github.event.workflow_run.head_sha }}"
+            source_ref="refs/heads/${{ github.event.workflow_run.head_branch }}"
+            source_ref_type="branch"
+            source_ref_name="${{ github.event.workflow_run.head_branch }}"
+          else
+            source_sha="${GITHUB_SHA}"
+            source_ref="${GITHUB_REF}"
+            source_ref_type="${GITHUB_REF_TYPE}"
+            source_ref_name="${GITHUB_REF_NAME}"
+          fi
+
+          short_sha="${source_sha::12}"
+          {
+            echo "tags<<EOF"
+            echo "${IMAGE_REPO}:sha-${short_sha}"
+            if [ "${source_ref}" = "refs/heads/main" ]; then
+              echo "${IMAGE_REPO}:main"
+            fi
+            if [ "${source_ref_type}" = "tag" ]; then
+              echo "${IMAGE_REPO}:${source_ref_name}"
+            fi
+            echo "EOF"
+            echo "primary_tag=sha-${short_sha}"
+            echo "source_sha=${source_sha}"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Build local image (gate-before-push)
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ./Dockerfile
+          push: false
+          load: true
+          tags: ${{ env.IMAGE_REPO }}:${{ steps.tags.outputs.primary_tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Install Syft (pinned + checksum verification)
+        run: |
+          set -euo pipefail
+          SYFT_VERSION="v1.24.0"
+          SYFT_ARCHIVE="syft_${SYFT_VERSION#v}_linux_amd64.tar.gz"
+          CHECKSUMS_FILE="syft_${SYFT_VERSION#v}_checksums.txt"
+          curl -sSfL -o "${SYFT_ARCHIVE}" "https://github.com/anchore/syft/releases/download/${SYFT_VERSION}/${SYFT_ARCHIVE}"
+          curl -sSfL -o "${CHECKSUMS_FILE}" "https://github.com/anchore/syft/releases/download/${SYFT_VERSION}/${CHECKSUMS_FILE}"
+          grep " ${SYFT_ARCHIVE}$" "${CHECKSUMS_FILE}" | sha256sum -c -
+          tar -xzf "${SYFT_ARCHIVE}" syft
+          install -m 0755 syft "${RUNNER_TEMP}/syft"
+          echo "${RUNNER_TEMP}" >> "${GITHUB_PATH}"
+
+      - name: Generate SBOM
+        run: |
+          set -euo pipefail
+          image_ref="${IMAGE_REPO}:${{ steps.tags.outputs.primary_tag }}"
+          syft "${image_ref}" -o spdx-json=sbom.spdx.json
+
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: sbom-${{ steps.tags.outputs.primary_tag }}
+          path: sbom.spdx.json
+          if-no-files-found: error
+
+      - name: Scan image (Trivy)
+        uses: aquasecurity/trivy-action@v0.35.0
+        with:
+          image-ref: ${{ env.IMAGE_REPO }}:${{ steps.tags.outputs.primary_tag }}
+          format: table
+          exit-code: '1'
+          ignore-unfixed: false
+          severity: HIGH,CRITICAL
+
+      - name: Login to registry
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ steps.registry.outputs.host }}
+          username: ${{ env.REGISTRY_USERNAME }}
+          password: ${{ env.REGISTRY_PASSWORD }}
+
+      - name: Push verified image tags
+        run: |
+          set -euo pipefail
+          primary_ref="${IMAGE_REPO}:${{ steps.tags.outputs.primary_tag }}"
+          printf '%s\n' '${{ steps.tags.outputs.tags }}' | while IFS= read -r tag; do
+            if [ -z "${tag}" ]; then
+              continue
+            fi
+            if [ "${tag}" != "${primary_ref}" ]; then
+              docker tag "${primary_ref}" "${tag}"
+            fi
+            docker push "${tag}"
+          done
+
+      - name: Publish summary
+        run: |
+          {
+            echo "### Verified and pushed image tags"
+            echo
+            echo '${{ steps.tags.outputs.tags }}'
+            echo
+            echo "Primary deployment tag: \`${{ steps.tags.outputs.primary_tag }}\`"
+            echo "Source commit: \`${{ steps.tags.outputs.source_sha }}\`"
+            echo
+            echo "SBOM artifact: sbom-${{ steps.tags.outputs.primary_tag }}"
+            echo
+            echo "Security gates: Syft SBOM + Trivy scan passed before push"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Cleanup local image and temp files
+        if: always()
+        run: |
+          set -euo pipefail
+          rm -f syft syft_*.tar.gz syft_*_checksums.txt sbom.spdx.json
+          printf '%s\n' '${{ steps.tags.outputs.tags }}' | while IFS= read -r tag; do
+            if [ -n "${tag}" ]; then
+              docker image rm -f "${tag}" >/dev/null 2>&1 || true
+            fi
+          done

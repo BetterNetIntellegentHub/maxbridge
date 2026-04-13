@@ -219,8 +219,31 @@
     state: present
 
 - name: Health check bridge
-  uri:
-    url: "{{ maxbridge_healthcheck_url }}"
-    method: GET
-    validate_certs: "{{ maxbridge_healthcheck_validate_certs }}"
-    status_code: 200
+  block:
+    - name: Poll readiness endpoint through nginx
+      uri:
+        url: "{{ maxbridge_healthcheck_url }}"
+        method: GET
+        validate_certs: "{{ maxbridge_healthcheck_validate_certs }}"
+        status_code:
+          - 200
+          - 502
+          - 503
+      register: maxbridge_healthcheck_result
+      until: maxbridge_healthcheck_result.status == 200
+      retries: "{{ maxbridge_healthcheck_retries }}"
+      delay: "{{ maxbridge_healthcheck_delay_seconds }}"
+      changed_when: false
+  rescue:
+    - name: Collect compose container states on health-check failure
+      command: docker compose -f {{ maxbridge_compose_dir }}/docker-compose.yml ps --all --format json
+      register: maxbridge_compose_ps_json
+      changed_when: false
+      failed_when: false
+
+    - name: Fail with compose state diagnostics
+      fail:
+        msg: >-
+          Readiness check failed for {{ maxbridge_healthcheck_url }} after
+          {{ maxbridge_healthcheck_retries }} retries (delay {{ maxbridge_healthcheck_delay_seconds }}s).
+          Compose container states: {{ maxbridge_compose_ps_json.stdout | default('unavailable') }}
