@@ -171,7 +171,7 @@ jobs:
           set -euo pipefail
           syft maxbridge:gate-${{ github.sha }} -o spdx-json=sbom.gate.spdx.json
       - name: Scan local image (Trivy)
-        uses: aquasecurity/trivy-action@v0.35.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: maxbridge:gate-${{ github.sha }}
           format: table
