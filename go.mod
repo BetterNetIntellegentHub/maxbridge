@@ -4,7 +4,7 @@ go 1.25.9
 
 require (
 	github.com/charmbracelet/bubbletea v1.3.10
-	github.com/jackc/pgx/v5 v5.9.1
+	github.com/jackc/pgx/v5 v5.10.0
 	github.com/pashagolub/pgxmock/v4 v4.9.0
 	github.com/prometheus/client_golang v1.23.2
 	golang.org/x/time v0.15.0
