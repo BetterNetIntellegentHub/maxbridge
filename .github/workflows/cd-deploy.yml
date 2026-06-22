@@ -34,7 +34,7 @@ jobs:
       rollback_tag: ${{ steps.resolve.outputs.rollback_tag }}
       promote_to_production: ${{ steps.resolve.outputs.promote_to_production }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -91,7 +91,7 @@ jobs:
       MAXBRIDGE_MAX_BOT_TOKEN: ${{ secrets.MAXBRIDGE_MAX_BOT_TOKEN }}
       MAXBRIDGE_REGISTRY_TOKEN: ${{ secrets.MAXBRIDGE_REGISTRY_TOKEN }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
 
@@ -309,7 +309,7 @@ jobs:
       MAXBRIDGE_MAX_BOT_TOKEN: ${{ secrets.MAXBRIDGE_MAX_BOT_TOKEN }}
       MAXBRIDGE_REGISTRY_TOKEN: ${{ secrets.MAXBRIDGE_REGISTRY_TOKEN }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
 
@@ -527,7 +527,7 @@ jobs:
       MAXBRIDGE_MAX_BOT_TOKEN: ${{ secrets.MAXBRIDGE_MAX_BOT_TOKEN }}
       MAXBRIDGE_REGISTRY_TOKEN: ${{ secrets.MAXBRIDGE_REGISTRY_TOKEN }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
 

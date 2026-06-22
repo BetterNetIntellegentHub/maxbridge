@@ -49,7 +49,7 @@ jobs:
       MAXBRIDGE_MAX_BOT_TOKEN: ${{ secrets.MAXBRIDGE_MAX_BOT_TOKEN }}
       MAXBRIDGE_REGISTRY_TOKEN: ${{ secrets.MAXBRIDGE_REGISTRY_TOKEN }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
 
